@@ -1,0 +1,6 @@
+[workspace]
+members = [
+	"utils",
+    "crossbeam-channel-pool",
+    "crossbeam-work-stealing-pool",
+]
