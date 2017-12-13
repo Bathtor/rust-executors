@@ -1,6 +1,0 @@
-[package]
-name = "crossbeam-work-stealing-pool"
-version = "0.1.0"
-authors = ["Lars Kroll <lkroll@kth.se>"]
-
-[dependencies]

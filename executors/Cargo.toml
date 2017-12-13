@@ -1,0 +1,30 @@
+[package]
+name = "executors"
+# NB: When modifying, also modify:
+#   1. html_root_url in lib.rs
+#   2. number in readme (for breaking changes)
+version = "0.1.0"
+authors = ["Lars Kroll <lkroll@kth.se>"]
+description = "A collection of high-performance task executors."
+documentation = "https://docs.rs/executors"
+homepage = "https://github.com/Bathtor/rust-executors"
+repository = "https://github.com/Bathtor/rust-executors"
+readme = "../README.md"
+keywords = ["executor", "concurrency", "thread"]
+categories = ["concurrency", "asynchronous"]
+license = "MIT"
+
+[dependencies]
+crossbeam-channel = "0.1.1"
+log = "0.3"
+synchronoise = "0.4.0"
+
+[dev-dependencies]
+env_logger = "0.4"
+
+
+[badges]
+# Maintenance: `status` is required Available options are `actively-developed`,
+# `passively-maintained`, `as-is`, `none`, `experimental`, `looking-for-maintainer`
+# and `deprecated`.
+maintenance = { status = "actively-developed" }

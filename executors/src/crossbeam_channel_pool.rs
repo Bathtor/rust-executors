@@ -2,18 +2,18 @@
 // file at the top-level directory of this distribution.
 //
 // Licensed under the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! A thread pool used to execute functions in parallel.
+//! A thread pool `Executor` used to execute functions in parallel.
 //!
 //! Spawns a specified number of worker threads and replenishes the pool
 //! if any worker threads panic.
 //!
 //! The pool automatically shuts down all workers when the last handle
 //! is dropped.
-//! 
+//!
 //! The interface is compatible with the
 //! standard [threadpool](https://crates.io/crates/threadpool), but the
 //! implementation runs faster, especially with multiple workers.
@@ -27,7 +27,8 @@
 //! Every thread sends one message over the channel, which then is collected with the `take()`.
 //!
 //! ```
-//! use crossbeam_channel_pool::ThreadPool;
+//! use executors::*;
+//! use executors::crossbeam_channel_pool::ThreadPool;
 //! use std::sync::mpsc::channel;
 //!
 //! let n_workers = 4;
@@ -45,28 +46,13 @@
 //! assert_eq!(rx.iter().take(n_jobs).fold(0, |a, b| a + b), 8);
 //! ```
 
-extern crate crossbeam_channel;
-extern crate synchronoise;
-extern crate utils;
-#[macro_use]
-extern crate log;
+use super::*;
 
 use crossbeam_channel::*;
-use synchronoise::CountdownEvent;
 use std::sync::{Arc, Weak, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::thread;
-use utils::*;
-
-//pub trait ThreadPoolHandle {
-//    /// Executes the job on one of the w
-//    fn execute<F>(&self, job: F)
-//    where
-//        F: FnOnce() + Send + 'static;
-//    fn shutdown_async(&self);
-//    fn shutdown(&self) -> Result<(), String>;
-//}
 
 #[derive(Clone)]
 pub struct ThreadPool {
@@ -88,7 +74,8 @@ impl ThreadPool {
     /// Create a new thread pool capable of executing four jobs concurrently:
     ///
     /// ```
-    /// use crossbeam_channel_pool::ThreadPool;
+    /// use executors::*;
+    /// use executors::crossbeam_channel_pool::ThreadPool;
     ///
     /// let pool = ThreadPool::new(4);
     /// ```
@@ -113,24 +100,10 @@ impl ThreadPool {
         }
         pool
     }
+}
 
-    /// Executes the function `job` on a thread in the pool.
-    ///
-    /// # Examples
-    ///
-    /// Execute four jobs on a thread pool that can run two jobs concurrently:
-    ///
-    /// ```
-    /// use crossbeam_channel_pool::ThreadPool;
-    ///
-    /// let pool = ThreadPool::new(2);
-    /// pool.execute(|| println!("hello"));
-    /// pool.execute(|| println!("world"));
-    /// pool.execute(|| println!("foo"));
-    /// pool.execute(|| println!("bar"));
-    /// std::thread::sleep(std::time::Duration::from_secs(1));
-    /// ```
-    pub fn execute<F>(&self, job: F)
+impl Executor for ThreadPool {
+    fn execute<F>(&self, job: F)
     where
         F: FnOnce() + Send + 'static,
     {
@@ -144,29 +117,7 @@ impl ThreadPool {
         }
     }
 
-    /// Shutdown the thread pool without waiting.
-    ///
-    /// This method can be used from one of the worker threads without
-    /// risk of deadlocking.
-    ///
-    /// # Examples
-    ///
-    /// Shutdown a [`ThreadPool`] from within a worker.
-    ///
-    /// ```
-    /// use crossbeam_channel_pool::ThreadPool;
-    ///
-    /// let pool = ThreadPool::new(1);
-    /// let pool2 = pool.clone();
-    /// pool.execute(|| println!("Hello!"));
-    /// pool.execute(move || {
-    /// 		println!("Shutting down");
-    ///		pool2.shutdown_async();
-    ///	});
-    /// std::thread::sleep(std::time::Duration::from_secs(1)); // or wait with a barrier
-    /// pool.execute(|| println!("doesn't work!"));
-    /// ```
-    pub fn shutdown_async(&self) {
+    fn shutdown_async(&self) {
         if !self.shutdown.compare_and_swap(
             false,
             true,
@@ -185,27 +136,7 @@ impl ThreadPool {
         }
     }
 
-    /// Shutdown the thread pool and wait for it to shut down all workers.
-    ///
-    /// This method can be ONLY be used from *outside* the worker threads
-    /// without risk of deadlocking.
-    ///
-    ///
-    /// # Examples
-    ///
-    /// Shutdown a [`ThreadPool`] from an external thread.
-    ///
-    /// ```
-    /// use crossbeam_channel_pool::ThreadPool;
-    ///
-    /// let pool = ThreadPool::new(1);
-    /// let pool2 = pool.clone();
-    /// pool.execute(|| println!("Hello!"));
-    /// pool.shutdown().expect("pool to shut down");
-    /// pool2.execute(|| println!("doesn't work!"));
-    /// ```
-
-    pub fn shutdown(self) -> Result<(), String> {
+    fn shutdown(self) -> Result<(), String> {
         if !self.shutdown.compare_and_swap(
             false,
             true,
@@ -376,7 +307,7 @@ impl Drop for Sentinel {
             match self.core.upgrade() {
                 Some(core) => spawn_worker(core.clone()),
                 None => warn!("Could not restart worker, as pool has been deallocated!"),
-            }            
+            }
         }
     }
 }
