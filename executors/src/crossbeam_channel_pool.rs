@@ -102,6 +102,8 @@ impl ThreadPool {
     }
 }
 
+impl !Sync for ThreadPool {}
+
 impl Executor for ThreadPool {
     fn execute<F>(&self, job: F)
     where

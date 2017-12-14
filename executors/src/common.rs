@@ -6,6 +6,8 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::fmt::{Debug, Display};
+
 /// A common trait for task executors.
 /// 
 /// All implementations need to allow cloning to create new handles to 
@@ -97,6 +99,43 @@ pub trait Executor : Clone+Send {
 pub fn ignore<V>(_: V) -> () {
     ()
 }
+
+pub(crate) trait LogErrors {
+    fn log_error(self, msg: &str);
+    fn log_warn(self, msg: &str);
+    fn log_info(self, msg: &str);
+    fn log_debug(self, msg: &str);
+}
+
+impl<V, E: Debug> LogErrors for Result<V, E> {
+    fn log_error(self, msg: &str) {
+        ignore(self.map_err(|e| error!("{}: {:?}", msg, e)));
+    }
+    fn log_warn(self, msg: &str) {
+        ignore(self.map_err(|e| warn!("{}: {:?}", msg, e)));
+    }
+    fn log_info(self, msg: &str) {
+        ignore(self.map_err(|e| info!("{}: {:?}", msg, e)));
+    }
+    fn log_debug(self, msg: &str) {
+        ignore(self.map_err(|e| debug!("{}: {:?}", msg, e)));
+    }
+}
+
+//impl<V, E: Display> LogErrors for Result<V, E> {
+//    fn log_error(self, msg: &str) {
+//        ignore(self.map_err(|e| error!("{}: {:?}", msg, e)));
+//    }
+//    fn log_warn(self, msg: &str) {
+//        ignore(self.map_err(|e| warn!("{}: {:?}", msg, e)));
+//    }
+//    fn log_info(self, msg: &str) {
+//        ignore(self.map_err(|e| info!("{}: {:?}", msg, e)));
+//    }
+//    fn log_debug(self, msg: &str) {
+//        ignore(self.map_err(|e| debug!("{}: {:?}", msg, e)));
+//    }
+//}
 
 #[cfg(test)]
 mod tests {

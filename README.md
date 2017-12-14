@@ -12,7 +12,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-executors = "0.1"
+executors = "0.2"
 ```
 
 and this to your crate root:
@@ -20,6 +20,10 @@ and this to your crate root:
 ```rust
 extern crate executors;
 ```
+
+## Rust Version
+
+Requires at least Rust `1.22.0`, as [crossbeam-deque](https://github.com/crossbeam-rs/crossbeam-deque) expects the `ord_max_min` feature to be stable.
 
 ## License
 

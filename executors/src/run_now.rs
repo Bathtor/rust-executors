@@ -7,6 +7,22 @@
 // except according to those terms.
 
 //! A simple `Executor` that simply runs tasks on the current thread.
+//!
+//! # Examples
+//!
+//! Run tasks in order.
+//!
+//! ```
+//! use executors::*;
+//! use executors::run_now::RunNowExecutor;
+//!
+//! let exec = RunNowExecutor::new();
+//! exec.execute(|| println!("hello"));
+//! exec.execute(|| println!("world"));
+//! exec.execute(|| println!("foo"));
+//! exec.execute(|| println!("bar"));
+//! exec.shutdown();
+//! ```
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
