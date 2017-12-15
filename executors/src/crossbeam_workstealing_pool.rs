@@ -14,7 +14,7 @@ use std::sync::{Arc, Weak, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::thread;
-use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::vec::Vec;
 use time;
 use rand::{ThreadRng, Rng};
@@ -25,12 +25,14 @@ use std::collections::BTreeMap;
 use std::iter::{FromIterator, IntoIterator};
 
 const CHECK_GLOBAL_INTERVAL_NS: u64 = timeconstants::NS_PER_MS;
-const CHECK_GLOBAL_MAX_MSGS: u64 = 100;
+//const CHECK_GLOBAL_MAX_MSGS: u64 = 100;
 const MAX_WAIT_WORKER_MS: u64 = 10;
 const MAX_WAIT_SHUTDOWN_MS: u64 = 5 * timeconstants::MS_PER_S;
 
+// UnsafeCell has 10x the performance of RefCell
+// and the scoping guarantees that the borrows are exclusive
 thread_local!(
-    static LOCAL_JOB_QUEUE: RefCell<Option<Deque<Job>>> = RefCell::new(Option::None)
+    static LOCAL_JOB_QUEUE: UnsafeCell<Option<Deque<Job>>> = UnsafeCell::new(Option::None);
 );
 
 #[derive(Clone)]
@@ -72,9 +74,9 @@ impl Executor for ThreadPool {
     {
         // NOTE: This check costs about 150k schedulings/s in a 2 by 2 experiment over 20 runs.
         if !self.shutdown.load(Ordering::SeqCst) {
-            LOCAL_JOB_QUEUE.with(|qo| {
+            LOCAL_JOB_QUEUE.with(|qo| unsafe {
                 let msg = Job(Box::new(job));
-                match *qo.borrow_mut() {
+                match *qo.get() {
                     Some(ref q) => q.push(msg),
                     None => {
                         debug!("Scheduling on global pool.");
@@ -271,10 +273,10 @@ impl ThreadPoolWorker {
     }
     fn run(&mut self) {
         debug!("Worker {} starting", self.id());
-        let local_stealer_raw = LOCAL_JOB_QUEUE.with(|q| {
+        let local_stealer_raw = LOCAL_JOB_QUEUE.with(|q| unsafe {
             let dq = Deque::new();
             let stealer = dq.stealer();
-            *q.borrow_mut() = Some(dq);
+            *q.get() = Some(dq);
             stealer
         });
         let local_stealer = JobStealer::new(local_stealer_raw, self.id);
@@ -282,22 +284,26 @@ impl ThreadPoolWorker {
         let sentinel = Sentinel::new(self.core.clone(), self.id);
         let max_wait = Duration::from_millis(MAX_WAIT_WORKER_MS);
         'main: loop {
-            let mut next_global_check = time::precise_time_ns() + CHECK_GLOBAL_INTERVAL_NS;
+            let next_global_check = time::precise_time_ns() + CHECK_GLOBAL_INTERVAL_NS;
             // Try the local queue usually
-            let mut count = 0u64;
-            'local: while let Steal::Data(d) = local_stealer.steal() {
-                let Job(f) = d;
-                f.call_box();
-                count += 1;
-                //                if count >= CHECK_GLOBAL_MAX_MSGS {
-                //                    //println!("Breaking to check global queue after {} msgs", count);
-                //                    break 'local;
-                //                }
-                let now = time::precise_time_ns();
-                if (now > next_global_check) {
-                    break 'local;
+            LOCAL_JOB_QUEUE.with(|q| unsafe {
+                if let Some(ref local_queue) = *q.get() {
+                    //let mut count = 0u64;
+                    'local: while let Steal::Data(d) = local_queue.steal() {
+                        let Job(f) = d;
+                        f.call_box();
+                        //                        count += 1;
+                        //                        if count >= CHECK_GLOBAL_MAX_MSGS {
+                        //                            break 'local;
+                        //                        }
+                        if (time::precise_time_ns() > next_global_check) {
+                            break 'local;
+                        }
+                    }
+                } else {
+                    panic!("Queue should have been initialised!");
                 }
-            }
+            });
             // drain the control queue
             'ctrl: loop {
                 match self.control.try_recv() {
@@ -323,26 +329,28 @@ impl ThreadPoolWorker {
             if let Ok(msg) = self.global_recv.try_recv() {
                 let Job(f) = msg;
                 f.call_box();
-            } else {
-                // try to steal something!
-                'stealing: for stealer in self.stealers.iter() {
-                    if let Steal::Data(d) = stealer.steal() {
-                        let Job(f) = d;
-                        f.call_box();
-                        break 'stealing; // only steal once before checking locally again
-                    }
-                }
-                // there wasn't anything to steal either...let's just wait for a bit
-                if let Ok(msg) = self.global_recv.recv_timeout(max_wait) {
-                    let Job(f) = msg;
-                    f.call_box();
-                }
-                // aaaaand starting over with 'local
+                continue 'main;
             }
+            // try to steal something!
+            'stealing: for stealer in self.stealers.iter() {
+                if let Steal::Data(d) = stealer.steal() {
+                    let Job(f) = d;
+                    f.call_box();
+                    continue 'main; // only steal once before checking locally again
+                }
+            }
+            // there wasn't anything to steal either...let's just wait for a bit
+            if let Ok(msg) = self.global_recv.recv_timeout(max_wait) {
+                let Job(f) = msg;
+                f.call_box();
+            }
+            // aaaaand starting over with 'local
         }
         sentinel.cancel();
         self.unregister_stealer(local_stealer);
-        LOCAL_JOB_QUEUE.with(|q| { *q.borrow_mut() = None; });
+        LOCAL_JOB_QUEUE.with(|q| unsafe {
+            *q.get() = None;
+        });
         debug!("Worker {} shutting down", self.id());
     }
 
@@ -392,6 +400,9 @@ struct JobStealer {
 impl JobStealer {
     fn new(stealer: Stealer<Job>, id: u64) -> JobStealer {
         JobStealer { inner: stealer, id }
+    }
+    fn id(&self) -> u64 {
+        self.id
     }
 }
 
