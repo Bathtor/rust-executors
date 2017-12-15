@@ -24,7 +24,8 @@ use std::collections::LinkedList;
 use std::collections::BTreeMap;
 use std::iter::{FromIterator, IntoIterator};
 
-const CHECK_GLOBAL_INTERVAL: u64 = timeconstants::NS_PER_MS;
+const CHECK_GLOBAL_INTERVAL_NS: u64 = timeconstants::NS_PER_MS;
+const CHECK_GLOBAL_MAX_MSGS: u64 = 100;
 const MAX_WAIT_WORKER_MS: u64 = 10;
 const MAX_WAIT_SHUTDOWN_MS: u64 = 5 * timeconstants::MS_PER_S;
 
@@ -280,15 +281,20 @@ impl ThreadPoolWorker {
         self.register_stealer(local_stealer.clone());
         let sentinel = Sentinel::new(self.core.clone(), self.id);
         let max_wait = Duration::from_millis(MAX_WAIT_WORKER_MS);
-        let mut last_global_check = time::precise_time_ns();
         'main: loop {
+            let mut next_global_check = time::precise_time_ns() + CHECK_GLOBAL_INTERVAL_NS;
             // Try the local queue usually
+            let mut count = 0u64;
             'local: while let Steal::Data(d) = local_stealer.steal() {
                 let Job(f) = d;
                 f.call_box();
+                count += 1;
+                //                if count >= CHECK_GLOBAL_MAX_MSGS {
+                //                    //println!("Breaking to check global queue after {} msgs", count);
+                //                    break 'local;
+                //                }
                 let now = time::precise_time_ns();
-                let time_since_check = now - last_global_check;
-                if (time_since_check > CHECK_GLOBAL_INTERVAL) {
+                if (now > next_global_check) {
                     break 'local;
                 }
             }
@@ -313,7 +319,6 @@ impl ThreadPoolWorker {
                 }
 
             }
-            last_global_check = time::precise_time_ns();
             // sometimes try the global queue
             if let Ok(msg) = self.global_recv.try_recv() {
                 let Job(f) = msg;
@@ -329,7 +334,6 @@ impl ThreadPoolWorker {
                 }
                 // there wasn't anything to steal either...let's just wait for a bit
                 if let Ok(msg) = self.global_recv.recv_timeout(max_wait) {
-                    last_global_check = time::precise_time_ns();
                     let Job(f) = msg;
                     f.call_box();
                 }
