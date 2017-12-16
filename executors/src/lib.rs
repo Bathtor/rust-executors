@@ -15,11 +15,16 @@
 //! General examples can be found in the [`Executor`](common/trait.Executor.html) trait
 //! documentation, and implementation specific examples with each implementation module.
 
+#[cfg(any(feature = "cb-channel-exec", feature = "workstealing-exec"))]
 extern crate crossbeam_channel;
+#[cfg(feature = "workstealing-exec")]
 extern crate crossbeam_deque;
 extern crate synchronoise;
+#[cfg(feature = "threadpool-exec")]
 extern crate threadpool;
+#[cfg(feature = "ws-timed-fairness")]
 extern crate time;
+#[cfg(feature = "workstealing-exec")]
 extern crate rand;
 #[macro_use]
 extern crate log;
@@ -27,15 +32,18 @@ extern crate log;
 pub mod common;
 pub mod bichannel;
 pub mod run_now;
+#[cfg(feature = "cb-channel-exec")]
 pub mod crossbeam_channel_pool;
+#[cfg(feature = "workstealing-exec")]
 pub mod crossbeam_workstealing_pool;
+#[cfg(feature = "threadpool-exec")]
 pub mod threadpool_executor;
 mod timeconstants;
 
 pub use common::Executor;
 use common::ignore;
 use common::LogErrors;
-use bichannel::*;
+//use bichannel::*;
 use synchronoise::CountdownEvent;
 
 #[cfg(test)]

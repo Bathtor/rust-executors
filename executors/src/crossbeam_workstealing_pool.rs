@@ -16,6 +16,7 @@ use std::time::Duration;
 use std::thread;
 use std::cell::UnsafeCell;
 use std::vec::Vec;
+#[cfg(feature = "ws-timed-fairness")]
 use time;
 use rand::{ThreadRng, Rng};
 use std::ops::Deref;
@@ -24,8 +25,10 @@ use std::collections::LinkedList;
 use std::collections::BTreeMap;
 use std::iter::{FromIterator, IntoIterator};
 
+#[cfg(feature = "ws-timed-fairness")]
 const CHECK_GLOBAL_INTERVAL_NS: u64 = timeconstants::NS_PER_MS;
-//const CHECK_GLOBAL_MAX_MSGS: u64 = 100;
+#[cfg(not(feature = "ws-timed-fairness"))]
+const CHECK_GLOBAL_MAX_MSGS: u64 = 100;
 const MAX_WAIT_WORKER_MS: u64 = 10;
 const MAX_WAIT_SHUTDOWN_MS: u64 = 5 * timeconstants::MS_PER_S;
 
@@ -72,8 +75,7 @@ impl Executor for ThreadPool {
     where
         F: FnOnce() + Send + 'static,
     {
-        // NOTE: This check costs about 150k schedulings/s in a 2 by 2 experiment over 20 runs.
-        if !self.shutdown.load(Ordering::SeqCst) {
+        if !self.shutdown.load(Ordering::Relaxed) {
             LOCAL_JOB_QUEUE.with(|qo| unsafe {
                 let msg = Job(Box::new(job));
                 match *qo.get() {
@@ -152,7 +154,7 @@ struct WorkerEntry {
 }
 
 struct ThreadPoolCore {
-    _global_sender: Sender<Job>,
+    global_sender: Sender<Job>,
     global_receiver: Receiver<Job>,
     shutdown: Arc<AtomicBool>,
     _threads: usize,
@@ -168,7 +170,7 @@ impl ThreadPoolCore {
         threads: usize,
     ) -> ThreadPoolCore {
         ThreadPoolCore {
-            _global_sender: global_sender,
+            global_sender,
             global_receiver,
             shutdown,
             _threads: threads,
@@ -184,7 +186,7 @@ impl ThreadPoolCore {
     }
 
     fn add_stealer(&mut self, stealer: JobStealer) {
-        let id = stealer.id;
+        let id = stealer.id();
         match self.workers.get_mut(&id) {
             Some(worker) => {
                 debug!("Registered stealer for #{}", id);
@@ -210,8 +212,11 @@ impl ThreadPoolCore {
             .map(|w| w.stealer.clone().unwrap())
             .collect();
         for (wid, worker) in self.workers.iter() {
-            let l: LinkedList<JobStealer> =
-                stealers.iter().filter(|s| s.id != *wid).cloned().collect();
+            let l: LinkedList<JobStealer> = stealers
+                .iter()
+                .filter(|s| s.id() != *wid)
+                .cloned()
+                .collect();
             worker.control.send(ControlMsg::Stealers(l)).log_warn(
                 "Could not send control message",
             );
@@ -284,20 +289,28 @@ impl ThreadPoolWorker {
         let sentinel = Sentinel::new(self.core.clone(), self.id);
         let max_wait = Duration::from_millis(MAX_WAIT_WORKER_MS);
         'main: loop {
+            #[cfg(feature = "ws-timed-fairness")]
             let next_global_check = time::precise_time_ns() + CHECK_GLOBAL_INTERVAL_NS;
             // Try the local queue usually
             LOCAL_JOB_QUEUE.with(|q| unsafe {
                 if let Some(ref local_queue) = *q.get() {
-                    //let mut count = 0u64;
+                    #[cfg(not(feature = "ws-timed-fairness"))]
+                    let mut count = 0u64;
                     'local: while let Steal::Data(d) = local_queue.steal() {
                         let Job(f) = d;
                         f.call_box();
-                        //                        count += 1;
-                        //                        if count >= CHECK_GLOBAL_MAX_MSGS {
-                        //                            break 'local;
-                        //                        }
-                        if (time::precise_time_ns() > next_global_check) {
-                            break 'local;
+                        #[cfg(not(feature = "ws-timed-fairness"))]
+                        {
+                            count += 1;
+                            if count >= CHECK_GLOBAL_MAX_MSGS {
+                                break 'local;
+                            }
+                        }
+                        #[cfg(feature = "ws-timed-fairness")]
+                        {
+                            if (time::precise_time_ns() > next_global_check) {
+                                break 'local;
+                            }
                         }
                     }
                 } else {
@@ -471,12 +484,31 @@ impl Drop for Sentinel {
             warn!("Active worker {} died! Restarting...", self.id);
             match self.core.upgrade() {
                 Some(core) => {
+                    let jobs = LOCAL_JOB_QUEUE.with(|q| unsafe {
+                        let mut jobs: Vec<Job> = Vec::new();
+                        if let Some(ref local_queue) = *q.get() {
+                            'drain: loop {
+                                match local_queue.steal() {
+                                    Steal::Data(d) => jobs.push(d),
+                                    Steal::Retry => (),
+                                    Steal::Empty => break 'drain,
+                                }
+                            }
+                        }
+                        jobs
+                    });
                     let mut guard = core.lock().unwrap();
+                    let gsend = guard.global_sender.clone();
                     // cleanup
                     guard.drop_worker(self.id);
                     // restart
                     guard.spawn_worker(core.clone());
                     drop(guard);
+                    for job in jobs.into_iter() {
+                        gsend.send(job).expect(
+                            "Job couldn't be resubmitted to global queue",
+                        );
+                    }
                 }
                 None => warn!("Could not restart worker, as pool has been deallocated!"),
             }
@@ -545,6 +577,45 @@ mod tests {
     }
 
     #[test]
+    fn reassign_jobs_from_failed_queues() {
+        env_logger::init();
+
+        let latch = Arc::new(CountdownEvent::new(2));
+        let pool = ThreadPool::new(1);
+        let pool2 = pool.clone();
+        let latch2 = latch.clone();
+        let latch3 = latch.clone();
+        pool.execute(move || ignore(latch2.decrement()));
+        pool.execute(move || {
+            pool2.execute(move || ignore(latch3.decrement()));
+            panic!("test panic please ignore")
+        });
+        let res = latch.wait_timeout(Duration::from_secs(5));
+        assert_eq!(res, 0);
+        pool.shutdown();
+    }
+
+
+    #[test]
+    fn check_stealers_on_dequeue_drop() {
+        let dq = Deque::<u64>::new();
+        let s1 = dq.stealer();
+        let s2 = s1.clone();
+        dq.push(1);
+        dq.push(2);
+        dq.push(3);
+        dq.push(4);
+        dq.push(5);
+        assert_eq!(dq.steal(), Steal::Data(1));
+        assert_eq!(s1.steal(), Steal::Data(2));
+        assert_eq!(s2.steal(), Steal::Data(3));
+        drop(dq);
+        assert_eq!(s1.steal(), Steal::Data(4));
+        drop(s1);
+        assert_eq!(s2.steal(), Steal::Data(5));
+    }
+
+    #[test]
     fn shutdown_from_worker() {
         env_logger::init();
 
@@ -562,6 +633,7 @@ mod tests {
         });
         let res = stop_latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 0);
+        thread::sleep(Duration::from_secs(1)); // give the new shutdown thread some time to run
         pool.execute(move || ignore(latch3.decrement()));
         let res = latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 1);

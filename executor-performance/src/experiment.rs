@@ -12,7 +12,6 @@ use std::thread;
 use std::sync::Arc;
 use synchronoise::CountdownEvent;
 
-
 #[derive(Clone, Debug)]
 pub struct ExperimentSettings {
     num_threads: usize,
