@@ -20,6 +20,11 @@ use executors::threadpool_executor::ThreadPoolExecutor as TPExecutor;
 use executors::crossbeam_channel_pool::ThreadPool as CCExecutor;
 use executors::crossbeam_workstealing_pool::ThreadPool as CWSExecutor;
 use clap::{Arg, App};
+use std::error::Error;
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
+use std::fs::OpenOptions;
 
 fn main() {
     let app = App::new("executor-performance")
@@ -67,6 +72,12 @@ fn main() {
             .long("skip-tpe")
             .help("Skip the test for the threadpool_executor as it can be VERY slow with multiple worker threads.")
             .takes_value(false)            
+        ).arg(
+            Arg::with_name("csv-file")
+            .short("o")
+            .long("output-csv")
+            .help("Output results into the given CSV file as '<total #messages>,<threadpool result>,<cb-channel result>,<workstealing result>'")
+            .takes_value(true)            
         );
     let opts = app.get_matches();
     let mut settings = ExperimentSettings::default();
@@ -99,46 +110,71 @@ fn main() {
         settings,
         settings.total_messages()
     );
+    let f: Option<File> = if opts.is_present("csv-file") {
+        let path = Path::new(opts.value_of("csv-file").unwrap());
+        let display = path.display();
+        let file = match OpenOptions::new().append(true).create(true).open(&path) {
+            Err(why) => panic!("couldn't open {}: {}", display, why.description()),
+            Ok(file) => file,
+        };
+        println!("Results will be added to {}", display);
+        Some(file)
+    } else {
+        None
+    };
     if opts.is_present("skip-threadpool-executor") {
         println!("Skipping threadpool_executor.");
-        run_experiments(&settings, true);
+        run_experiments(&settings, f, true, format!("{}", settings.num_threads()));
     } else {
-        run_experiments(&settings, false);
+        run_experiments(&settings, f, false, format!("{}", settings.num_threads()));
     }
 }
 
 const NS_TO_S: f64 = 1.0 / (1000.0 * 1000.0 * 1000.0);
 
-fn run_experiments(settings: &ExperimentSettings, skip_tpe: bool) {
+fn run_experiments(settings: &ExperimentSettings, out: Option<File>, skip_tpe: bool, extra_infos: String) {
     let total_messages = settings.total_messages() as f64;
 
-    if !skip_tpe {
+    let tpe_res = if !skip_tpe {
         let exp = Experiment::new(
             |nt| TPExecutor::new(nt),
             settings,
             String::from("threadpool_executor"),
         );
-        run_experiment(exp, total_messages);
-    }
-    {
+        run_experiment(exp, total_messages)
+    } else {
+        0.0f64
+    };
+    let cc_res = {
         let exp = Experiment::new(
             |nt| CCExecutor::new(nt),
             settings,
             String::from("crossbeam_channel_pool"),
         );
-        run_experiment(exp, total_messages);
-    }
-    {
+        run_experiment(exp, total_messages)
+    };
+    let cws_res = {
         let exp = Experiment::new(
             |nt| CWSExecutor::new(nt),
             settings,
             String::from("crossbeam_workstealing_pool"),
         );
-        run_experiment(exp, total_messages);
+        run_experiment(exp, total_messages)
+    };
+    match out {
+        Some(mut f) => {
+            let csv = format!("{},{},{},{},{}\n", total_messages,extra_infos,tpe_res, cc_res, cws_res);
+            f.write_all(csv.as_bytes()).expect("Output could not be written");
+            f.flush().expect("Output could not be flushed");
+        }
+        None => ()
     }
 }
 
-fn run_experiment<'a, E: Executor + 'static>(mut exp: Experiment<'a, E>, total_messages: f64) {
+fn run_experiment<'a, E: Executor + 'static>(
+    mut exp: Experiment<'a, E>,
+    total_messages: f64,
+) -> f64 {
     exp.prepare();
     println!("Starting run for {}", exp.label());
     let startt = time::precise_time_ns();
@@ -154,4 +190,5 @@ fn run_experiment<'a, E: Executor + 'static>(mut exp: Experiment<'a, E>, total_m
         events_per_second
     );
     exp.cleanup();
+    events_per_second
 }
