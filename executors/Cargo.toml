@@ -44,3 +44,5 @@ env_logger = "0.4"
 # `passively-maintained`, `as-is`, `none`, `experimental`, `looking-for-maintainer`
 # and `deprecated`.
 maintenance = { status = "actively-developed" }
+
+travis-ci = { repository = "Bathtor/rust-executors", branch = "master" }
