@@ -69,7 +69,7 @@ impl<In, Out> Endpoint<In, Out> {
     }
 }
 
-impl<In, Out> !Sync for Endpoint<In, Out> {}
+//impl<In, Out> !Sync for Endpoint<In, Out> {}
 unsafe impl<In: Send, Out: Send> Send for Endpoint<In, Out> {}
 
 #[cfg(test)]

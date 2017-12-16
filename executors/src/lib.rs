@@ -6,8 +6,8 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 #![doc(html_root_url = "https://docs.rs/executors/0.2.0")]
-#![feature(ord_max_min)]
-#![feature(optin_builtin_traits)]
+//#![feature(ord_max_min)]
+//#![feature(optin_builtin_traits)]
 #![allow(unused_parens)]
 //! This crate provides a number of task executors all implementing the
 //! [`Executor`](common/trait.Executor.html) trait.
