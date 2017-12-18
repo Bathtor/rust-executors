@@ -9,6 +9,7 @@
 extern crate executors;
 extern crate synchronoise;
 extern crate time;
+extern crate test;
 #[macro_use]
 extern crate clap;
 

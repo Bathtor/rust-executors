@@ -289,6 +289,7 @@ impl ThreadPoolWorker {
         let sentinel = Sentinel::new(self.core.clone(), self.id);
         let max_wait = Duration::from_millis(MAX_WAIT_WORKER_MS);
         'main: loop {
+            let mut fairness_check = false;
             #[cfg(feature = "ws-timed-fairness")]
             let next_global_check = time::precise_time_ns() + CHECK_GLOBAL_INTERVAL_NS;
             // Try the local queue usually
@@ -296,19 +297,27 @@ impl ThreadPoolWorker {
                 if let Some(ref local_queue) = *q.get() {
                     #[cfg(not(feature = "ws-timed-fairness"))]
                     let mut count = 0u64;
-                    'local: while let Steal::Data(d) = local_queue.steal() {
-                        let Job(f) = d;
-                        f.call_box();
+                    'local: loop {
+                        match local_queue.steal() {
+                            Steal::Data(d) => {
+                                let Job(f) = d;
+                                f.call_box();
+                            }
+                            Steal::Retry => (),
+                            Steal::Empty => break 'local,
+                        }
                         #[cfg(not(feature = "ws-timed-fairness"))]
                         {
                             count += 1;
                             if count >= CHECK_GLOBAL_MAX_MSGS {
+                                fairness_check = true;
                                 break 'local;
                             }
                         }
                         #[cfg(feature = "ws-timed-fairness")]
                         {
                             if (time::precise_time_ns() > next_global_check) {
+                                fairness_check = true;
                                 break 'local;
                             }
                         }
@@ -344,12 +353,22 @@ impl ThreadPoolWorker {
                 f.call_box();
                 continue 'main;
             }
+            // only go on if there was no work left on the local queue
+            if fairness_check {
+                continue 'main;
+            }
             // try to steal something!
-            'stealing: for stealer in self.stealers.iter() {
-                if let Steal::Data(d) = stealer.steal() {
-                    let Job(f) = d;
-                    f.call_box();
-                    continue 'main; // only steal once before checking locally again
+            for stealer in self.stealers.iter() {
+                'stealing: loop {
+                    match stealer.steal() {
+                        Steal::Data(d) => {
+                            let Job(f) = d;
+                            f.call_box();
+                            continue 'main; // only steal once before checking locally again
+                        }
+                        Steal::Retry => continue 'stealing,
+                        Steal::Empty => break 'stealing,
+                    }
                 }
             }
             // there wasn't anything to steal either...let's just wait for a bit

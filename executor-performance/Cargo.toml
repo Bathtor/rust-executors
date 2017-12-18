@@ -7,6 +7,10 @@ authors = ["Lars Kroll <lkroll@kth.se>"]
 synchronoise = "0.4"
 time = "0.1"
 
+[dependencies.rustc-test]
+version = "0.2"
+features = ["asm_black_box"]
+
 [dependencies.clap]
 version = "2"
 features = ["color"]

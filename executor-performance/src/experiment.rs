@@ -11,6 +11,8 @@ use std::default::Default;
 use std::thread;
 use std::sync::Arc;
 use synchronoise::CountdownEvent;
+use executors::common::ignore;
+use test::black_box;
 
 #[derive(Clone, Debug)]
 pub struct ExperimentSettings {
@@ -163,24 +165,26 @@ impl<'a, E: Executor + 'static> Experiment<'a, E> {
     }
 }
 
-#[inline(always)]
+#[inline(never)]
 fn do_work(n: u64) -> u64 {
+    //println!("Doing work");
     let mut sum = 0u64;
     for i in 0..n {
         sum += i;
     }
+    //println!("Work was {}", sum);
     sum
 }
 
 fn amplify<E: Executor + 'static>(exec: E, pre_work: u64, post_work: u64, remaining: u64) {
-    do_work(pre_work);
+    black_box(do_work(pre_work));
     if (remaining > 0) {
         let amp_exec = exec.clone();
         exec.execute(move || {
             amplify(amp_exec, pre_work, post_work, remaining - 1)
         });
     }
-    do_work(post_work);
+    black_box(do_work(post_work));
 }
 
 fn amplify_finish<E: Executor + 'static>(
@@ -190,15 +194,15 @@ fn amplify_finish<E: Executor + 'static>(
     finisher: Finisher,
     remaining: u64,
 ) {
-    do_work(pre_work);
+    black_box(do_work(pre_work));
     if (remaining > 0) {
         let amp_exec = exec.clone();
         exec.execute(move || {
             amplify_finish(amp_exec, pre_work, post_work, finisher, remaining - 1)
         });
-        do_work(post_work);
+        black_box(do_work(post_work));
     } else {
-        do_work(post_work);
+        black_box(do_work(post_work));
         finisher.execute();
     }
 }
