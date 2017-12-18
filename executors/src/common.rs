@@ -6,7 +6,7 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 /// A common trait for task executors.
 /// 
@@ -88,18 +88,29 @@ pub trait Executor : Clone+Send {
 ///
 /// # Examples
 ///
-/// Ignoring a Result.
+/// Ignoring a `Result`.
 ///
-/// ```
+/// ```ignore
 /// use executors::common::*;
 /// let res: Result<(), String> = Ok(());
 /// ignore(res);
 /// ```
 #[inline(always)]
-pub fn ignore<V>(_: V) -> () {
+pub(crate) fn ignore<V>(_: V) -> () {
     ()
 }
 
+/// A trait to log errors when ignoring results.
+///
+/// # Examples
+/// 
+/// Log to warn when ignoring a `Result`
+/// 
+/// ```ignore
+/// use executors::common::*;
+/// let res: Result<(), String> = Err(String::from("Test error please ignore."));
+/// res.log_warn("Result was an error");
+/// ```
 pub(crate) trait LogErrors {
     fn log_error(self, msg: &str);
     fn log_warn(self, msg: &str);

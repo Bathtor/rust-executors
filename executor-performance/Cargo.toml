@@ -9,7 +9,8 @@ time = "0.1"
 
 [dependencies.rustc-test]
 version = "0.2"
-features = ["asm_black_box"]
+#features = ["asm_black_box"] # uncomment if you want to use --pre or --post
+# otherwise the compiler will just optimise out the useless work they do
 
 [dependencies.clap]
 version = "2"

@@ -6,6 +6,63 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
+//! A thread pool `Executor` used to execute functions in parallel.
+//!
+//! Spawns a specified number of worker threads and replenishes the pool
+//! if any worker threads panic.
+//!
+//! The pool automatically shuts down all workers when the last handle
+//! is dropped.
+//!
+//! The interface is compatible with the
+//! standard [threadpool](https://crates.io/crates/threadpool), but the
+//! implementation runs faster, especially with multiple workers.
+//!
+//! Uses a per-thread local queues
+//! (based on [croosbeam-deque](https://crates.io/crates/crossbeam-deque))
+//! for internal scheduling (like a fork-join-pool) and a global queue
+//! (based on [crossbeam-channel](https://crates.io/crates/crossbeam-channel))
+//! for scheduling from external (non-worker) threads.
+//!
+//! There are two ways of managing fairness between local and global queues:
+//!
+//! - Timeout based: Check global queue at most every 1ms
+//! (activated via the `ws-timed-fairness` feature, which is in the 
+//! default feature set)
+//! - Job count based: Check global every 100 local jobs
+//! (used if the `ws-timed-fairness` feature is disabled)
+//!
+//! Timeout based fairness is more predictable, as it is less dependent
+//! on the job execution time. But if a platform implementation of
+//! `time::precise_time_ns` locks across threads, it would have
+//! significant performance impact.
+//!
+//! # Examples
+//!
+//! ## Synchronized with a channel
+//!
+//! Every thread sends one message over the channel, which then is collected with the `take()`.
+//!
+//! ```
+//! use executors::*;
+//! use executors::crossbeam_workstealing_pool::ThreadPool;
+//! use std::sync::mpsc::channel;
+//!
+//! let n_workers = 4;
+//! let n_jobs = 8;
+//! let pool = ThreadPool::new(n_workers);
+//!
+//! let (tx, rx) = channel();
+//! for _ in 0..n_jobs {
+//!     let tx = tx.clone();
+//!     pool.execute(move|| {
+//!         tx.send(1).expect("channel will be there waiting for the pool");
+//!     });
+//! }
+//!
+//! assert_eq!(rx.iter().take(n_jobs).fold(0, |a, b| a + b), 8);
+//! ```
+
 use super::*;
 use crossbeam_deque::*;
 use crossbeam_channel::*;
@@ -47,6 +104,22 @@ pub struct ThreadPool {
 }
 
 impl ThreadPool {
+    /// Creates a new thread pool capable of executing `threads` number of jobs concurrently.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `threads` is 0.
+    ///
+    /// # Examples
+    ///
+    /// Create a new thread pool capable of executing four jobs concurrently:
+    ///
+    /// ```
+    /// use executors::*;
+    /// use executors::crossbeam_workstealing_pool::ThreadPool;
+    ///
+    /// let pool = ThreadPool::new(4);
+    /// ```
     pub fn new(threads: usize) -> ThreadPool {
         assert!(threads > 0);
         let (tx, rx) = unbounded();
