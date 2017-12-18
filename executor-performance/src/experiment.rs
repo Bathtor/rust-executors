@@ -11,7 +11,6 @@ use std::default::Default;
 use std::thread;
 use std::sync::Arc;
 use synchronoise::CountdownEvent;
-use executors::common::ignore;
 use test::black_box;
 
 #[derive(Clone, Debug)]
