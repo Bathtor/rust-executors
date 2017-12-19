@@ -29,7 +29,7 @@ Requires at least Rust `1.22.0`, as [crossbeam-deque](https://github.com/crossbe
 ## Deciding on an Implementation
 
 To select an `Executor` implementation, it is best to test the exact requirements on the target hardware.
-The crate [executor-performance](tree/master/executor-performance) provides a performance testing suite for the provided implementations. To use it *clone* this repository, run `cargo build --release`, and then check `target/release/executor-performance --help` to see the available options. There is also a small [script](blob/master/executor-performance/threadinc.sh) to test thread-scaling with some reasonable default options.
+The crate `executor-performance` provides a performance testing suite for the provided implementations. To use it *clone* this repository, run `cargo build --release`, and then check `target/release/executor-performance --help` to see the available options. There is also a small [script](executor-performance/threadinc.sh) to test thread-scaling with some reasonable default options.
 
 If you don't know what hardware your code is going to run on, use the [crossbeam_workstealing_pool](https://docs.rs/executors/0.2.0/executors/crossbeam_workstealing_pool/index.html). It tends to perform best on all the hardware I have tested (which is pretty much Intel processors like i7 and Xeon).
 
