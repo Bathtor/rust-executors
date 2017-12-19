@@ -60,7 +60,7 @@ impl Executor for RunNowExecutor {
         }
     }
 
-    fn shutdown(self) -> Result<(), String> {
+    fn shutdown_borrowed(&self) -> Result<(), String> {
         if self.active.compare_and_swap(true, false, Ordering::SeqCst) {
             debug!("Shutting down executor.");
             Result::Ok(())

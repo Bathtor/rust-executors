@@ -138,7 +138,7 @@ impl Executor for ThreadPool {
         }
     }
 
-    fn shutdown(self) -> Result<(), String> {
+    fn shutdown_borrowed(&self) -> Result<(), String> {
         if !self.shutdown.compare_and_swap(
             false,
             true,

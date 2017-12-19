@@ -81,7 +81,14 @@ pub trait Executor : Clone+Send {
     /// executor.shutdown().expect("pool to shut down");
     /// executor2.execute(|| println!("doesn't work!"));
     /// ```
-    fn shutdown(self) -> Result<(), String>;   
+    fn shutdown(self) -> Result<(), String> {
+        self.shutdown_borrowed()
+    }
+    
+    /// Same as `shutdown` but without consuming self
+    ///
+    /// Meant for use with trait object wrappers.
+    fn shutdown_borrowed(&self) -> Result<(), String>;
 }
 
 /// A simple method to explicitly throw away return parameters.

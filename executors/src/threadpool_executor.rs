@@ -95,7 +95,7 @@ impl Executor for ThreadPoolExecutor {
         }
     }
 
-    fn shutdown(self) -> Result<(), String> {
+    fn shutdown_borrowed(&self) -> Result<(), String> {
         if self.active.compare_and_swap(true, false, Ordering::SeqCst) {
             debug!("Waiting for pool to shut down.");
             self.pool.join();
