@@ -27,7 +27,7 @@
 //! There are two ways of managing fairness between local and global queues:
 //!
 //! - Timeout based: Check global queue at most every 1ms
-//! (activated via the `ws-timed-fairness` feature, which is in the 
+//! (activated via the `ws-timed-fairness` feature, which is in the
 //! default feature set)
 //! - Job count based: Check global every 100 local jobs
 //! (used if the `ws-timed-fairness` feature is disabled)
@@ -64,23 +64,23 @@
 //! ```
 
 use super::*;
-use crossbeam_deque::*;
-use crossbeam_channel::*;
-use std::sync::mpsc;
-use std::sync::{Arc, Weak, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-use std::thread;
+use crossbeam_channel as channel;
+use crossbeam_deque as deque;
+//use std::sync::mpsc;
+use rand::{Rng, ThreadRng};
 use std::cell::UnsafeCell;
+use std::collections::BTreeMap;
+use std::collections::LinkedList;
+use std::fmt::{Debug, Formatter};
+use std::iter::{FromIterator, IntoIterator};
+use std::ops::Deref;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+use std::thread;
+use std::time::Duration;
 use std::vec::Vec;
 #[cfg(feature = "ws-timed-fairness")]
 use time;
-use rand::{ThreadRng, Rng};
-use std::ops::Deref;
-use std::fmt::{Debug, Formatter};
-use std::collections::LinkedList;
-use std::collections::BTreeMap;
-use std::iter::{FromIterator, IntoIterator};
 
 #[cfg(feature = "ws-timed-fairness")]
 const CHECK_GLOBAL_INTERVAL_NS: u64 = timeconstants::NS_PER_MS;
@@ -92,13 +92,13 @@ const MAX_WAIT_SHUTDOWN_MS: u64 = 5 * timeconstants::MS_PER_S;
 // UnsafeCell has 10x the performance of RefCell
 // and the scoping guarantees that the borrows are exclusive
 thread_local!(
-    static LOCAL_JOB_QUEUE: UnsafeCell<Option<Deque<Job>>> = UnsafeCell::new(Option::None);
+    static LOCAL_JOB_QUEUE: UnsafeCell<Option<deque::Worker<Job>>> = UnsafeCell::new(Option::None);
 );
 
 #[derive(Clone)]
 pub struct ThreadPool {
     core: Arc<Mutex<ThreadPoolCore>>,
-    global_sender: Sender<Job>,
+    global_sender: channel::Sender<Job>,
     threads: usize,
     shutdown: Arc<AtomicBool>,
 }
@@ -122,7 +122,7 @@ impl ThreadPool {
     /// ```
     pub fn new(threads: usize) -> ThreadPool {
         assert!(threads > 0);
-        let (tx, rx) = unbounded();
+        let (tx, rx) = channel::unbounded();
         let shutdown = Arc::new(AtomicBool::new(false));
         let core = ThreadPoolCore::new(tx.clone(), rx.clone(), shutdown.clone(), threads);
         let pool = ThreadPool {
@@ -155,9 +155,7 @@ impl Executor for ThreadPool {
                     Some(ref q) => q.push(msg),
                     None => {
                         debug!("Scheduling on global pool.");
-                        self.global_sender.send(msg).expect(
-                            "Couldn't schedule job in queue!",
-                        )
+                        self.global_sender.send(msg)
                     }
                 }
             });
@@ -175,21 +173,16 @@ impl Executor for ThreadPool {
     }
 
     fn shutdown_borrowed(&self) -> Result<(), String> {
-        if !self.shutdown.compare_and_swap(
-            false,
-            true,
-            Ordering::SeqCst,
-        )
+        if !self
+            .shutdown
+            .compare_and_swap(false, true, Ordering::SeqCst)
         {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
             {
                 let guard = self.core.lock().unwrap();
                 for worker in guard.workers.values() {
-                    worker
-                        .control
-                        .send(ControlMsg::Stop(latch.clone()))
-                        .expect("Couldn't send stop msg to thread!");
+                    worker.control.send(ControlMsg::Stop(latch.clone()));
                 }
             }
             let remaining = latch.wait_timeout(Duration::from_millis(MAX_WAIT_SHUTDOWN_MS));
@@ -222,13 +215,13 @@ impl Executor for ThreadPool {
 //}
 
 struct WorkerEntry {
-    control: mpsc::Sender<ControlMsg>,
+    control: channel::Sender<ControlMsg>,
     stealer: Option<JobStealer>,
 }
 
 struct ThreadPoolCore {
-    global_sender: Sender<Job>,
-    global_receiver: Receiver<Job>,
+    global_sender: channel::Sender<Job>,
+    global_receiver: channel::Receiver<Job>,
     shutdown: Arc<AtomicBool>,
     _threads: usize,
     ids: u64,
@@ -237,8 +230,8 @@ struct ThreadPoolCore {
 
 impl ThreadPoolCore {
     fn new(
-        global_sender: Sender<Job>,
-        global_receiver: Receiver<Job>,
+        global_sender: channel::Sender<Job>,
+        global_receiver: channel::Receiver<Job>,
         shutdown: Arc<AtomicBool>,
         threads: usize,
     ) -> ThreadPoolCore {
@@ -272,14 +265,15 @@ impl ThreadPoolCore {
 
     fn drop_worker(&mut self, id: u64) {
         debug!("Dropping worker #{}", id);
-        self.workers.remove(&id).expect(
-            "Key should have been present!",
-        );
+        self.workers
+            .remove(&id)
+            .expect("Key should have been present!");
         self.send_stealers();
     }
 
     fn send_stealers(&mut self) {
-        let stealers: Vec<JobStealer> = self.workers
+        let stealers: Vec<JobStealer> = self
+            .workers
             .values()
             .filter(|w| w.stealer.is_some())
             .map(|w| w.stealer.clone().unwrap())
@@ -290,15 +284,13 @@ impl ThreadPoolCore {
                 .filter(|s| s.id() != *wid)
                 .cloned()
                 .collect();
-            worker.control.send(ControlMsg::Stealers(l)).log_warn(
-                "Could not send control message",
-            );
+            worker.control.send(ControlMsg::Stealers(l));
         }
     }
 
     fn spawn_worker(&mut self, core: Arc<Mutex<ThreadPoolCore>>) {
         let id = self.new_worker_id();
-        let (tx_control, rx_control) = mpsc::channel();
+        let (tx_control, rx_control) = channel::unbounded();
         let worker = WorkerEntry {
             control: tx_control,
             stealer: Option::None,
@@ -324,8 +316,8 @@ impl Drop for ThreadPoolCore {
 struct ThreadPoolWorker {
     id: u64,
     core: Weak<Mutex<ThreadPoolCore>>,
-    global_recv: Receiver<Job>,
-    control: mpsc::Receiver<ControlMsg>,
+    global_recv: channel::Receiver<Job>,
+    control: channel::Receiver<ControlMsg>,
     stealers: Vec<JobStealer>,
     random: ThreadRng,
 }
@@ -333,8 +325,8 @@ struct ThreadPoolWorker {
 impl ThreadPoolWorker {
     fn new(
         id: u64,
-        global_recv: Receiver<Job>,
-        control: mpsc::Receiver<ControlMsg>,
+        global_recv: channel::Receiver<Job>,
+        control: channel::Receiver<ControlMsg>,
         core: Arc<Mutex<ThreadPoolCore>>,
     ) -> ThreadPoolWorker {
         ThreadPoolWorker {
@@ -352,9 +344,8 @@ impl ThreadPoolWorker {
     fn run(&mut self) {
         debug!("Worker {} starting", self.id());
         let local_stealer_raw = LOCAL_JOB_QUEUE.with(|q| unsafe {
-            let dq = Deque::new();
-            let stealer = dq.stealer();
-            *q.get() = Some(dq);
+            let (worker, stealer) = deque::fifo();
+            *q.get() = Some(worker);
             stealer
         });
         let local_stealer = JobStealer::new(local_stealer_raw, self.id);
@@ -371,13 +362,12 @@ impl ThreadPoolWorker {
                     #[cfg(not(feature = "ws-timed-fairness"))]
                     let mut count = 0u64;
                     'local: loop {
-                        match local_queue.steal() {
-                            Steal::Data(d) => {
+                        match local_queue.pop() {
+                            Some(d) => {
                                 let Job(f) = d;
                                 f.call_box();
                             }
-                            Steal::Retry => (),
-                            Steal::Empty => break 'local,
+                            None => break 'local,
                         }
                         #[cfg(not(feature = "ws-timed-fairness"))]
                         {
@@ -402,26 +392,23 @@ impl ThreadPoolWorker {
             // drain the control queue
             'ctrl: loop {
                 match self.control.try_recv() {
-                    Ok(msg) => {
-                        match msg {
-                            ControlMsg::Stealers(l) => self.update_stealers(l),
-                            ControlMsg::Stop(latch) => {
-                                latch.decrement().expect("stop latch decrements");
-                                break 'main;
-                            }
+                    Some(msg) => match msg {
+                        ControlMsg::Stealers(l) => self.update_stealers(l),
+                        ControlMsg::Stop(latch) => {
+                            latch.decrement().expect("stop latch decrements");
+                            break 'main;
                         }
-                    }
-                    Err(mpsc::TryRecvError::Empty) => break 'ctrl,
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        debug!("Worker {} self-terminating.", self.id());
-                        sentinel.cancel();
-                        panic!("Threadpool wasn't shut down properly!");
-                    }
+                    },
+                    None => break 'ctrl,
+                    // Err(mpsc::TryRecvError::Disconnected) => {
+                    //     debug!("Worker {} self-terminating.", self.id());
+                    //     sentinel.cancel();
+                    //     panic!("Threadpool wasn't shut down properly!");
+                    // }
                 }
-
             }
             // sometimes try the global queue
-            if let Ok(msg) = self.global_recv.try_recv() {
+            if let Some(msg) = self.global_recv.try_recv() {
                 let Job(f) = msg;
                 f.call_box();
                 continue 'main;
@@ -432,22 +419,22 @@ impl ThreadPoolWorker {
             }
             // try to steal something!
             for stealer in self.stealers.iter() {
-                'stealing: loop {
-                    match stealer.steal() {
-                        Steal::Data(d) => {
-                            let Job(f) = d;
-                            f.call_box();
-                            continue 'main; // only steal once before checking locally again
-                        }
-                        Steal::Retry => continue 'stealing,
-                        Steal::Empty => break 'stealing,
-                    }
+                if let Some(d) = stealer.steal() {
+                        let Job(f) = d;
+                        f.call_box();
+                        continue 'main; // only steal once before checking locally again
+                   
                 }
             }
             // there wasn't anything to steal either...let's just wait for a bit
-            if let Ok(msg) = self.global_recv.recv_timeout(max_wait) {
-                let Job(f) = msg;
-                f.call_box();
+            select! {
+                recv(self.global_recv, msg) => {
+                    if let Some(m) = msg {
+                        let Job(f) = m;
+                        f.call_box();
+                    }
+                }
+                recv(channel::after(max_wait)) => (),
             }
             // aaaaand starting over with 'local
         }
@@ -498,12 +485,12 @@ impl<F: FnOnce()> FnBox for F {
 
 #[derive(Clone)]
 struct JobStealer {
-    inner: Stealer<Job>,
+    inner: deque::Stealer<Job>,
     id: u64,
 }
 
 impl JobStealer {
-    fn new(stealer: Stealer<Job>, id: u64) -> JobStealer {
+    fn new(stealer: deque::Stealer<Job>, id: u64) -> JobStealer {
         JobStealer { inner: stealer, id }
     }
     fn id(&self) -> u64 {
@@ -520,7 +507,7 @@ impl PartialEq for JobStealer {
 impl Eq for JobStealer {}
 
 impl Deref for JobStealer {
-    type Target = Stealer<Job>;
+    type Target = deque::Stealer<Job>;
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
@@ -538,7 +525,6 @@ enum ControlMsg {
     Stealers(LinkedList<JobStealer>),
     Stop(Arc<CountdownEvent>),
 }
-
 
 impl Debug for ControlMsg {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
@@ -580,10 +566,9 @@ impl Drop for Sentinel {
                         let mut jobs: Vec<Job> = Vec::new();
                         if let Some(ref local_queue) = *q.get() {
                             'drain: loop {
-                                match local_queue.steal() {
-                                    Steal::Data(d) => jobs.push(d),
-                                    Steal::Retry => (),
-                                    Steal::Empty => break 'drain,
+                                match local_queue.pop() {
+                                    Some(d) => jobs.push(d),
+                                    None => break 'drain,
                                 }
                             }
                         }
@@ -597,9 +582,7 @@ impl Drop for Sentinel {
                     guard.spawn_worker(core.clone());
                     drop(guard);
                     for job in jobs.into_iter() {
-                        gsend.send(job).expect(
-                            "Job couldn't be resubmitted to global queue",
-                        );
+                        gsend.send(job);
                     }
                 }
                 None => warn!("Could not restart worker, as pool has been deallocated!"),
@@ -616,7 +599,7 @@ mod tests {
 
     #[test]
     fn run_with_two_threads() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
         let pool = ThreadPool::new(2);
@@ -631,7 +614,7 @@ mod tests {
 
     #[test]
     fn amplify() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(4));
         let pool = ThreadPool::new(2);
@@ -654,7 +637,7 @@ mod tests {
 
     #[test]
     fn keep_pool_size() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
         let pool = ThreadPool::new(1);
@@ -670,7 +653,7 @@ mod tests {
 
     #[test]
     fn reassign_jobs_from_failed_queues() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
         let pool = ThreadPool::new(1);
@@ -687,29 +670,27 @@ mod tests {
         pool.shutdown();
     }
 
-
     #[test]
     fn check_stealers_on_dequeue_drop() {
-        let dq = Deque::<u64>::new();
-        let s1 = dq.stealer();
+        let (dq, s1) = deque::fifo::<u64>(); //Worker::<u64>::new();
         let s2 = s1.clone();
         dq.push(1);
         dq.push(2);
         dq.push(3);
         dq.push(4);
         dq.push(5);
-        assert_eq!(dq.steal(), Steal::Data(1));
-        assert_eq!(s1.steal(), Steal::Data(2));
-        assert_eq!(s2.steal(), Steal::Data(3));
+        assert_eq!(dq.pop(), Some(1));
+        assert_eq!(s1.steal(), Some(2));
+        assert_eq!(s2.steal(), Some(3));
         drop(dq);
-        assert_eq!(s1.steal(), Steal::Data(4));
+        assert_eq!(s1.steal(), Some(4));
         drop(s1);
-        assert_eq!(s2.steal(), Steal::Data(5));
+        assert_eq!(s2.steal(), Some(5));
     }
 
     #[test]
     fn shutdown_from_worker() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let pool = ThreadPool::new(1);
         let pool2 = pool.clone();
@@ -733,7 +714,7 @@ mod tests {
 
     #[test]
     fn shutdown_external() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let pool = ThreadPool::new(1);
         let pool2 = pool.clone();
@@ -752,7 +733,7 @@ mod tests {
 
     #[test]
     fn dealloc_on_handle_drop() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let pool = ThreadPool::new(1);
         let core = Arc::downgrade(&pool.core);

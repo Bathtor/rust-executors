@@ -29,14 +29,14 @@ ws-timed-fairness = ["time"]
 [dependencies]
 log = "0.3"
 synchronoise = "0.4"
-crossbeam-channel = {version = "0.1", optional = true}
+crossbeam-channel = {version = "0.2", optional = true}
 threadpool = {version = "1.7", optional = true}
-crossbeam-deque = {version = "0.1", optional = true}
+crossbeam-deque = {version = "0.5", optional = true}
 time = {version = "0.1", optional = true}
 rand = {version = "0.3", optional = true}
 
 [dev-dependencies]
-env_logger = "0.4"
+env_logger = "0.5"
 version-sync = "0.5"
 
 

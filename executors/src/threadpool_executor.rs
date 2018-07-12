@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn run_with_two_threads() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
         let pool = ThreadPoolExecutor::new(2);
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn keep_pool_size() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
         let pool = ThreadPoolExecutor::new(1);
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn shutdown_from_worker() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let pool = ThreadPoolExecutor::new(1);
         let pool2 = pool.clone();
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn shutdown_external() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let pool = ThreadPoolExecutor::new(1);
         let pool2 = pool.clone();

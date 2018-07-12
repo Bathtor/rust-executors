@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn run_tasks() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
         let exec = RunNowExecutor::new();
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn shutdown_from_worker() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let exec = RunNowExecutor::new();
         let exec2 = exec.clone();
@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn shutdown_external() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let exec = RunNowExecutor::new();
         let exec2 = exec.clone();
