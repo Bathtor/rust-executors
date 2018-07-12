@@ -48,7 +48,7 @@
 
 use super::*;
 
-use crossbeam_channel::*;
+use crossbeam_channel as channel;
 use std::sync::{Arc, Weak, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -57,7 +57,7 @@ use std::thread;
 #[derive(Clone)]
 pub struct ThreadPool {
     core: Arc<Mutex<ThreadPoolCore>>,
-    sender: Sender<JobMsg>,
+    sender: channel::Sender<JobMsg>,
     threads: usize,
     shutdown: Arc<AtomicBool>,
 }
@@ -81,7 +81,7 @@ impl ThreadPool {
     /// ```
     pub fn new(threads: usize) -> ThreadPool {
         assert!(threads > 0);
-        let (tx, rx) = unbounded();
+        let (tx, rx) = channel::unbounded();
         let shutdown = Arc::new(AtomicBool::new(false));
         let pool = ThreadPool {
             core: Arc::new(Mutex::new(ThreadPoolCore {
@@ -111,9 +111,7 @@ impl Executor for ThreadPool {
     {
         // NOTE: This check costs about 150k schedulings/s in a 2 by 2 experiment over 20 runs.
         if !self.shutdown.load(Ordering::SeqCst) {
-            self.sender.send(JobMsg::Job(Box::new(job))).expect(
-                "Couldn't schedule job in queue!",
-            );
+            self.sender.send(JobMsg::Job(Box::new(job)));
         } else {
             warn!("Ignoring job as pool is shutting down.")
         }
@@ -129,9 +127,7 @@ impl Executor for ThreadPool {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
             for _ in 0..self.threads {
-                self.sender.send(JobMsg::Stop(latch.clone())).expect(
-                    "Couldn't send stop msg to thread!",
-                );
+                self.sender.send(JobMsg::Stop(latch.clone()));
             }
         } else {
             warn!("Pool is already shutting down!");
@@ -148,9 +144,7 @@ impl Executor for ThreadPool {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
             for _ in 0..self.threads {
-                self.sender.send(JobMsg::Stop(latch.clone())).expect(
-                    "Couldn't send stop msg to thread!",
-                );
+                self.sender.send(JobMsg::Stop(latch.clone()));
             }
             let timeout = Duration::from_millis(5000);
             let remaining = latch.wait_timeout(timeout);
@@ -181,8 +175,8 @@ fn spawn_worker(core: Arc<Mutex<ThreadPoolCore>>) {
 }
 
 struct ThreadPoolCore {
-    sender: Sender<JobMsg>,
-    receiver: Receiver<JobMsg>,
+    sender: channel::Sender<JobMsg>,
+    receiver: channel::Receiver<JobMsg>,
     shutdown: Arc<AtomicBool>,
     threads: usize,
     ids: usize,
@@ -207,9 +201,7 @@ impl Drop for ThreadPoolCore {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
             for _ in 0..self.threads {
-                self.sender.send(JobMsg::Stop(latch.clone())).expect(
-                    "Couldn't send stop msg to thread!",
-                );
+                self.sender.send(JobMsg::Stop(latch.clone()));
             }
             let timeout = Duration::from_millis(5000);
             let remaining = latch.wait_timeout(timeout);
@@ -230,7 +222,7 @@ impl Drop for ThreadPoolCore {
 struct ThreadPoolWorker {
     id: usize,
     core: Weak<Mutex<ThreadPoolCore>>,
-    recv: Receiver<JobMsg>,
+    recv: channel::Receiver<JobMsg>,
 }
 
 impl ThreadPoolWorker {
@@ -252,7 +244,7 @@ impl ThreadPoolWorker {
     fn run(&mut self) {
         debug!("CrossbeamWorker {} starting", self.id());
         let sentinel = Sentinel::new(self.core.clone(), self.id);
-        while let Ok(msg) = self.recv.recv() {
+        while let Some(msg) = self.recv.recv() {
             match msg {
                 JobMsg::Job(f) => f.call_box(),
                 JobMsg::Stop(latch) => {
@@ -322,7 +314,7 @@ mod tests {
 
     #[test]
     fn run_with_two_threads() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
         let pool = ThreadPool::new(2);
@@ -336,7 +328,7 @@ mod tests {
 
     #[test]
     fn keep_pool_size() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
         let pool = ThreadPool::new(1);
@@ -351,7 +343,7 @@ mod tests {
 
     #[test]
     fn shutdown_from_worker() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let pool = ThreadPool::new(1);
         let pool2 = pool.clone();
@@ -374,7 +366,7 @@ mod tests {
 
     #[test]
     fn shutdown_external() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let pool = ThreadPool::new(1);
         let pool2 = pool.clone();
@@ -390,7 +382,7 @@ mod tests {
 
     #[test]
     fn shutdown_on_handle_drop() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let pool = ThreadPool::new(1);
         let core = Arc::downgrade(&pool.core);
