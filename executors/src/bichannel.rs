@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn ping_pong() {
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
         let latch_left = latch.clone();

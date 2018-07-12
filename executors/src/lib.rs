@@ -5,7 +5,7 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![doc(html_root_url = "https://docs.rs/executors/0.3.0")]
+#![doc(html_root_url = "https://docs.rs/executors/0.4.1")]
 //#![feature(ord_max_min)]
 //#![feature(optin_builtin_traits)]
 #![allow(unused_parens)]

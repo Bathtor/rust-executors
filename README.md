@@ -13,7 +13,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-executors = "0.3"
+executors = "0.4"
 ```
 
 and this to your crate root:
@@ -24,14 +24,13 @@ extern crate executors;
 
 ## Rust Version
 
-Requires at least Rust `1.22.0`, as [crossbeam-deque](https://github.com/crossbeam-rs/crossbeam-deque) expects the `ord_max_min` feature to be stable.
-
+Requires at least Rust `1.26`, due to [crossbeam-channel](https://github.com/crossbeam-rs/crossbeam-channel) requirements.
 ## Deciding on an Implementation
 
 To select an `Executor` implementation, it is best to test the exact requirements on the target hardware.
 The crate `executor-performance` provides a performance testing suite for the provided implementations. To use it *clone* this repository, run `cargo build --release`, and then check `target/release/executor-performance --help` to see the available options. There is also a small [script](executor-performance/threadinc.sh) to test thread-scaling with some reasonable default options.
 
-If you don't know what hardware your code is going to run on, use the [crossbeam_workstealing_pool](https://docs.rs/executors/0.2.0/executors/crossbeam_workstealing_pool/index.html). It tends to perform best on all the hardware I have tested (which is pretty much Intel processors like i7 and Xeon).
+If you don't know what hardware your code is going to run on, use the [crossbeam_workstealing_pool](https://docs.rs/executors/0.4.1/executors/crossbeam_workstealing_pool/index.html). It tends to perform best on all the hardware I have tested (which is pretty much Intel processors like i7 and Xeon).
 
 ## License
 
