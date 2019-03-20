@@ -514,12 +514,12 @@ impl Deref for JobStealer {
 }
 
 impl Debug for JobStealer {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "JobStealer#{}(_)", self.id)
     }
 }
 
-struct Job(Box<FnBox + Send + 'static>);
+struct Job(Box<dyn FnBox + Send + 'static>);
 
 enum ControlMsg {
     Stealers(LinkedList<JobStealer>),
@@ -527,7 +527,7 @@ enum ControlMsg {
 }
 
 impl Debug for ControlMsg {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match *self {
             ControlMsg::Stealers(ref l) => write!(f, "Stealers({:?})", l),
             ControlMsg::Stop(_) => write!(f, "Stop(_)"),
@@ -593,7 +593,7 @@ impl Drop for Sentinel {
 
 #[cfg(test)]
 mod tests {
-    extern crate env_logger;
+    use env_logger;
 
     use super::*;
 

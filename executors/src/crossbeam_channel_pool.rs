@@ -269,7 +269,7 @@ impl<F: FnOnce()> FnBox for F {
 }
 
 enum JobMsg {
-    Job(Box<FnBox + Send + 'static>),
+    Job(Box<dyn FnBox + Send + 'static>),
     Stop(Arc<CountdownEvent>),
 }
 
@@ -308,7 +308,7 @@ impl Drop for Sentinel {
 
 #[cfg(test)]
 mod tests {
-    extern crate env_logger;
+    use env_logger;
 
     use super::*;
 

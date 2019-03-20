@@ -72,7 +72,7 @@ impl Executor for RunNowExecutor {
 
 #[cfg(test)]
 mod tests {
-    extern crate env_logger;
+    use env_logger;
 
     use super::*;
     use std::time::Duration;

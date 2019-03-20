@@ -19,7 +19,7 @@
 extern crate crossbeam_channel;
 #[cfg(feature = "workstealing-exec")]
 extern crate crossbeam_deque;
-extern crate synchronoise;
+
 #[cfg(feature = "threadpool-exec")]
 extern crate threadpool;
 #[cfg(feature = "ws-timed-fairness")]

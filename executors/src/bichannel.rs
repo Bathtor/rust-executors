@@ -61,10 +61,10 @@ impl<In, Out> Endpoint<In, Out> {
     pub fn recv_timeout(&self, timeout: Duration) -> Result<In, RecvTimeoutError> {
         self.receiver.recv_timeout(timeout)
     }
-    pub fn iter(&self) -> Iter<In> {
+    pub fn iter(&self) -> Iter<'_, In> {
         self.receiver.iter()
     }
-    pub fn try_iter(&self) -> TryIter<In> {
+    pub fn try_iter(&self) -> TryIter<'_, In> {
         self.receiver.try_iter()
     }
 }
@@ -74,7 +74,7 @@ unsafe impl<In: Send, Out: Send> Send for Endpoint<In, Out> {}
 
 #[cfg(test)]
 mod tests {
-    extern crate env_logger;
+    use env_logger;
 
     use super::*;
     use std::time::Duration;
