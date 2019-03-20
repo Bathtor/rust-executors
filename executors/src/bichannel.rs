@@ -80,7 +80,7 @@ mod tests {
     use std::time::Duration;
     use std::thread;
     use std::sync::Arc;
-    use common::ignore;
+    use crate::common::ignore;
     use synchronoise::CountdownEvent;
     struct Ping;
     struct Pong;

@@ -15,7 +15,7 @@ extern crate clap;
 
 pub mod experiment;
 
-use experiment::*;
+use crate::experiment::*;
 use executors::*;
 use executors::threadpool_executor::ThreadPoolExecutor as TPExecutor;
 use executors::crossbeam_channel_pool::ThreadPool as CCExecutor;

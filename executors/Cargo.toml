@@ -3,7 +3,7 @@ name = "executors"
 # NB: When modifying, also modify:
 #   1. html_root_url in lib.rs
 #   2. number in readme (for breaking changes)
-version = "0.4.1"
+version = "0.4.2"
 authors = ["Lars Kroll <lkroll@kth.se>"]
 description = "A collection of high-performance task executors."
 documentation = "https://docs.rs/executors"
@@ -37,7 +37,7 @@ rand = {version = "0.3", optional = true}
 
 [dev-dependencies]
 env_logger = "0.5"
-version-sync = "0.5"
+version-sync = "0.7"
 
 
 [badges]

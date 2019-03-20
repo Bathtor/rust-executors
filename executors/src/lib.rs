@@ -5,10 +5,9 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![doc(html_root_url = "https://docs.rs/executors/0.4.1")]
-//#![feature(ord_max_min)]
-//#![feature(optin_builtin_traits)]
+#![doc(html_root_url = "https://docs.rs/executors/0.4.2")]
 #![allow(unused_parens)]
+
 //! This crate provides a number of task executors all implementing the
 //! [`Executor`](common/trait.Executor.html) trait.
 //!
@@ -41,9 +40,9 @@ pub mod crossbeam_workstealing_pool;
 pub mod threadpool_executor;
 mod timeconstants;
 
-pub use common::Executor;
-use common::ignore;
-use common::LogErrors;
+pub use crate::common::Executor;
+use crate::common::ignore;
+
 //use bichannel::*;
 use synchronoise::CountdownEvent;
 
