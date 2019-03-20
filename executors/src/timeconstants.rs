@@ -6,11 +6,16 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#[allow(dead_code)]
 pub const NS_PER_S: u64 = 1_000_000_000;
+#[allow(dead_code)]
 pub const US_PER_S: u64 = 1_000_000;
+#[allow(dead_code)]
 pub const MS_PER_S: u64 = 1_000;
 
+#[allow(dead_code)]
 pub const NS_PER_MS: u64 = 1_000_000;
+#[allow(dead_code)]
 pub const US_PER_MS: u64 = 1_000;
-
+#[allow(dead_code)]
 pub const NS_PER_US: u64 = 1_000;

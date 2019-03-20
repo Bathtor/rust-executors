@@ -165,17 +165,17 @@ mod tests {
     }
 
     struct SomeStruct {
-        a: u32,
-        b: f64,
-        c: bool,
+        _a: u32,
+        _b: f64,
+        _c: bool,
     }
 
     #[test]
     fn ignore_objects() {
         let v = SomeStruct {
-            a: 1,
-            b: 2.0,
-            c: true,
+            _a: 1,
+            _b: 2.0,
+            _c: true,
         };
         assert_eq!(ignore(v), ());
     }

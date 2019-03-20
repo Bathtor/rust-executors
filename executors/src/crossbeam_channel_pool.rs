@@ -111,9 +111,9 @@ impl Executor for ThreadPool {
     {
         // NOTE: This check costs about 150k schedulings/s in a 2 by 2 experiment over 20 runs.
         if !self.shutdown.load(Ordering::SeqCst) {
-            self.sender.send(JobMsg::Job(Box::new(job)));
+            self.sender.send(JobMsg::Job(Box::new(job))).unwrap_or_else(|e| error!("Error submitting job: {:?}", e));
         } else {
-            warn!("Ignoring job as pool is shutting down.")
+            warn!("Ignoring job as pool is shutting down.");
         }
     }
 
@@ -127,7 +127,7 @@ impl Executor for ThreadPool {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
             for _ in 0..self.threads {
-                self.sender.send(JobMsg::Stop(latch.clone()));
+                self.sender.send(JobMsg::Stop(latch.clone())).unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
             }
         } else {
             warn!("Pool is already shutting down!");
@@ -144,7 +144,7 @@ impl Executor for ThreadPool {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
             for _ in 0..self.threads {
-                self.sender.send(JobMsg::Stop(latch.clone()));
+                self.sender.send(JobMsg::Stop(latch.clone())).unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
             }
             let timeout = Duration::from_millis(5000);
             let remaining = latch.wait_timeout(timeout);
@@ -201,7 +201,7 @@ impl Drop for ThreadPoolCore {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
             for _ in 0..self.threads {
-                self.sender.send(JobMsg::Stop(latch.clone()));
+                self.sender.send(JobMsg::Stop(latch.clone())).unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
             }
             let timeout = Duration::from_millis(5000);
             let remaining = latch.wait_timeout(timeout);
@@ -244,7 +244,7 @@ impl ThreadPoolWorker {
     fn run(&mut self) {
         debug!("CrossbeamWorker {} starting", self.id());
         let sentinel = Sentinel::new(self.core.clone(), self.id);
-        while let Some(msg) = self.recv.recv() {
+        while let Ok(msg) = self.recv.recv() {
             match msg {
                 JobMsg::Job(f) => f.call_box(),
                 JobMsg::Stop(latch) => {

@@ -9,7 +9,7 @@ synchronoise = "0.4"
 time = "0.1"
 
 [dependencies.rustc-test]
-version = "0.2"
+version = "0.3"
 #features = ["asm_black_box"] # uncomment if you want to use --pre or --post
 # otherwise the compiler will just optimise out the useless work they do
 

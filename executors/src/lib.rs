@@ -15,7 +15,6 @@
 //! documentation, and implementation specific examples with each implementation module.
 
 #[cfg(any(feature = "cb-channel-exec", feature = "workstealing-exec"))]
-#[macro_use]
 extern crate crossbeam_channel;
 #[cfg(feature = "workstealing-exec")]
 extern crate crossbeam_deque;

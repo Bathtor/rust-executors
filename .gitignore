@@ -27,3 +27,6 @@ local.properties
 
 # Locally stored "Eclipse launch configurations"
 *.launch
+
+# Experiment results
+**/*.csv

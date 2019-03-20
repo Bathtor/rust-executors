@@ -5,6 +5,7 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
+#![feature(test)]
 #![allow(unused_parens)]
 extern crate executors;
 extern crate synchronoise;
@@ -29,7 +30,7 @@ use std::fs::OpenOptions;
 
 fn main() {
     let app = App::new("executor-performance")
-        .version("v0.1.0")
+        .version("v0.1.1")
         .author("Lars Kroll <lkroll@kth.se>")
         .about(
             "Runs performance tests for different Executor implementations.",

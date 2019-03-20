@@ -67,7 +67,7 @@ use super::*;
 use crossbeam_channel as channel;
 use crossbeam_deque as deque;
 //use std::sync::mpsc;
-use rand::{Rng, ThreadRng};
+use rand::prelude::*;
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
 use std::collections::LinkedList;
@@ -98,7 +98,7 @@ thread_local!(
 #[derive(Clone)]
 pub struct ThreadPool {
     core: Arc<Mutex<ThreadPoolCore>>,
-    global_sender: channel::Sender<Job>,
+    global_sender: Arc<deque::Injector<Job>>,
     threads: usize,
     shutdown: Arc<AtomicBool>,
 }
@@ -122,12 +122,12 @@ impl ThreadPool {
     /// ```
     pub fn new(threads: usize) -> ThreadPool {
         assert!(threads > 0);
-        let (tx, rx) = channel::unbounded();
+        let injector = Arc::new(deque::Injector::new());
         let shutdown = Arc::new(AtomicBool::new(false));
-        let core = ThreadPoolCore::new(tx.clone(), rx.clone(), shutdown.clone(), threads);
+        let core = ThreadPoolCore::new(injector.clone(), shutdown.clone(), threads);
         let pool = ThreadPool {
             core: Arc::new(Mutex::new(core)),
-            global_sender: tx.clone(),
+            global_sender: injector.clone(),
             threads,
             shutdown,
         };
@@ -152,13 +152,15 @@ impl Executor for ThreadPool {
             LOCAL_JOB_QUEUE.with(|qo| unsafe {
                 let msg = Job(Box::new(job));
                 match *qo.get() {
-                    Some(ref q) => q.push(msg),
+                    Some(ref q) => {
+                        q.push(msg);
+                    },
                     None => {
                         debug!("Scheduling on global pool.");
-                        self.global_sender.send(msg)
-                    }
+                        self.global_sender.push(msg);
+                    },
                 }
-            });
+            })
         } else {
             warn!("Ignoring job as pool is shutting down.")
         }
@@ -182,7 +184,7 @@ impl Executor for ThreadPool {
             {
                 let guard = self.core.lock().unwrap();
                 for worker in guard.workers.values() {
-                    worker.control.send(ControlMsg::Stop(latch.clone()));
+                    worker.control.send(ControlMsg::Stop(latch.clone())).unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
                 }
             }
             let remaining = latch.wait_timeout(Duration::from_millis(MAX_WAIT_SHUTDOWN_MS));
@@ -220,8 +222,7 @@ struct WorkerEntry {
 }
 
 struct ThreadPoolCore {
-    global_sender: channel::Sender<Job>,
-    global_receiver: channel::Receiver<Job>,
+    global_injector: Arc<deque::Injector<Job>>,
     shutdown: Arc<AtomicBool>,
     _threads: usize,
     ids: u64,
@@ -230,14 +231,12 @@ struct ThreadPoolCore {
 
 impl ThreadPoolCore {
     fn new(
-        global_sender: channel::Sender<Job>,
-        global_receiver: channel::Receiver<Job>,
+        global_injector: Arc<deque::Injector<Job>>,
         shutdown: Arc<AtomicBool>,
         threads: usize,
     ) -> ThreadPoolCore {
         ThreadPoolCore {
-            global_sender,
-            global_receiver,
+            global_injector,
             shutdown,
             _threads: threads,
             ids: 0,
@@ -284,7 +283,7 @@ impl ThreadPoolCore {
                 .filter(|s| s.id() != *wid)
                 .cloned()
                 .collect();
-            worker.control.send(ControlMsg::Stealers(l));
+            worker.control.send(ControlMsg::Stealers(l)).unwrap_or_else(|e| error!("Error submitting Stealer msg: {:?}", e));
         }
     }
 
@@ -295,7 +294,7 @@ impl ThreadPoolCore {
             control: tx_control,
             stealer: Option::None,
         };
-        let recv = self.global_receiver.clone();
+        let recv = self.global_injector.clone();
         self.workers.insert(id, worker);
         thread::spawn(move || {
             let mut worker = ThreadPoolWorker::new(id, recv, rx_control, core);
@@ -316,7 +315,7 @@ impl Drop for ThreadPoolCore {
 struct ThreadPoolWorker {
     id: u64,
     core: Weak<Mutex<ThreadPoolCore>>,
-    global_recv: channel::Receiver<Job>,
+    global_injector: Arc<deque::Injector<Job>>,
     control: channel::Receiver<ControlMsg>,
     stealers: Vec<JobStealer>,
     random: ThreadRng,
@@ -325,14 +324,14 @@ struct ThreadPoolWorker {
 impl ThreadPoolWorker {
     fn new(
         id: u64,
-        global_recv: channel::Receiver<Job>,
+        global_injector: Arc<deque::Injector<Job>>,
         control: channel::Receiver<ControlMsg>,
         core: Arc<Mutex<ThreadPoolCore>>,
     ) -> ThreadPoolWorker {
         ThreadPoolWorker {
             id,
             core: Arc::downgrade(&core),
-            global_recv,
+            global_injector,
             control,
             stealers: Vec::new(),
             random: rand::thread_rng(),
@@ -344,7 +343,8 @@ impl ThreadPoolWorker {
     fn run(&mut self) {
         debug!("Worker {} starting", self.id());
         let local_stealer_raw = LOCAL_JOB_QUEUE.with(|q| unsafe {
-            let (worker, stealer) = deque::fifo();
+            let worker = deque::Worker::new_fifo();
+            let stealer = worker.stealer();
             *q.get() = Some(worker);
             stealer
         });
@@ -392,23 +392,30 @@ impl ThreadPoolWorker {
             // drain the control queue
             'ctrl: loop {
                 match self.control.try_recv() {
-                    Some(msg) => match msg {
+                    Ok(msg) => match msg {
                         ControlMsg::Stealers(l) => self.update_stealers(l),
                         ControlMsg::Stop(latch) => {
                             latch.decrement().expect("stop latch decrements");
                             break 'main;
                         }
                     },
-                    None => break 'ctrl,
-                    // Err(mpsc::TryRecvError::Disconnected) => {
-                    //     debug!("Worker {} self-terminating.", self.id());
-                    //     sentinel.cancel();
-                    //     panic!("Threadpool wasn't shut down properly!");
-                    // }
+                    Err(channel::TryRecvError::Empty) => break 'ctrl,
+                    Err(channel::TryRecvError::Disconnected) => {
+                        debug!("Worker {} self-terminating.", self.id());
+                        sentinel.cancel();
+                        panic!("Threadpool wasn't shut down properly!");
+                    }
                 }
             }
             // sometimes try the global queue
-            if let Some(msg) = self.global_recv.try_recv() {
+            let glob_res = LOCAL_JOB_QUEUE.with(|q| unsafe {
+                if let Some(ref local_queue) = *q.get() {
+                    self.global_injector.steal_batch_and_pop(local_queue)
+                } else {
+                    panic!("Queue should have been initialised!");
+                }
+            });
+            if let deque::Steal::Success(msg) = glob_res {
                 let Job(f) = msg;
                 f.call_box();
                 continue 'main;
@@ -419,23 +426,23 @@ impl ThreadPoolWorker {
             }
             // try to steal something!
             for stealer in self.stealers.iter() {
-                if let Some(d) = stealer.steal() {
-                        let Job(f) = d;
+                if let deque::Steal::Success(msg) = stealer.steal() {
+                        let Job(f) = msg;
                         f.call_box();
                         continue 'main; // only steal once before checking locally again
-                   
                 }
             }
             // there wasn't anything to steal either...let's just wait for a bit
-            select! {
-                recv(self.global_recv, msg) => {
-                    if let Some(m) = msg {
-                        let Job(f) = m;
-                        f.call_box();
-                    }
-                }
-                recv(channel::after(max_wait)) => (),
-            }
+            // select! {
+            //     recv(self.global_injector) -> msg => {
+            //         if let Ok(m) = msg {
+            //             let Job(f) = m;
+            //             f.call_box();
+            //         }
+            //     }
+            //     default(max_wait) => (),
+            // }
+            thread::park_timeout(max_wait);
             // aaaaand starting over with 'local
         }
         sentinel.cancel();
@@ -468,7 +475,7 @@ impl ThreadPoolWorker {
 
     fn update_stealers(&mut self, l: LinkedList<JobStealer>) {
         let mut v = Vec::from_iter(l.into_iter());
-        self.random.shuffle(&mut v);
+        v.shuffle(&mut self.random);
         self.stealers = v;
     }
 }
@@ -575,14 +582,14 @@ impl Drop for Sentinel {
                         jobs
                     });
                     let mut guard = core.lock().unwrap();
-                    let gsend = guard.global_sender.clone();
+                    let gsend = guard.global_injector.clone();
                     // cleanup
                     guard.drop_worker(self.id);
                     // restart
                     guard.spawn_worker(core.clone());
                     drop(guard);
                     for job in jobs.into_iter() {
-                        gsend.send(job);
+                        gsend.push(job);
                     }
                 }
                 None => warn!("Could not restart worker, as pool has been deallocated!"),
@@ -609,7 +616,7 @@ mod tests {
         pool.execute(move || ignore(latch3.decrement()));
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
-        pool.shutdown();
+        pool.shutdown().unwrap_or_else(|e| error!("Error during pool shutdown {:?}",e));
     }
 
     #[test]
@@ -632,7 +639,7 @@ mod tests {
         });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
-        pool.shutdown();
+        pool.shutdown().unwrap_or_else(|e| error!("Error during pool shutdown {:?}",e));
     }
 
     #[test]
@@ -648,7 +655,7 @@ mod tests {
         pool.execute(move || ignore(latch3.decrement()));
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
-        pool.shutdown();
+        pool.shutdown().unwrap_or_else(|e| error!("Error during pool shutdown {:?}",e));
     }
 
     #[test]
@@ -667,12 +674,13 @@ mod tests {
         });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
-        pool.shutdown();
+        pool.shutdown().unwrap_or_else(|e| error!("Error during pool shutdown {:?}",e));
     }
 
     #[test]
     fn check_stealers_on_dequeue_drop() {
-        let (dq, s1) = deque::fifo::<u64>(); //Worker::<u64>::new();
+        let dq: deque::Worker<u64> = deque::Worker::new_fifo();
+        let s1 = dq.stealer();
         let s2 = s1.clone();
         dq.push(1);
         dq.push(2);
@@ -680,12 +688,12 @@ mod tests {
         dq.push(4);
         dq.push(5);
         assert_eq!(dq.pop(), Some(1));
-        assert_eq!(s1.steal(), Some(2));
-        assert_eq!(s2.steal(), Some(3));
+        assert_eq!(s1.steal(), deque::Steal::Success(2));
+        assert_eq!(s2.steal(), deque::Steal::Success(3));
         drop(dq);
-        assert_eq!(s1.steal(), Some(4));
+        assert_eq!(s1.steal(), deque::Steal::Success(4));
         drop(s1);
-        assert_eq!(s2.steal(), Some(5));
+        assert_eq!(s2.steal(), deque::Steal::Success(5));
     }
 
     #[test]
