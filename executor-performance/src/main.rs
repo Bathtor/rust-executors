@@ -5,12 +5,16 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![feature(test)]
+#![cfg_attr(feature = "nightly", feature(test))]
+
 #![allow(unused_parens)]
 extern crate executors;
 extern crate synchronoise;
 extern crate time;
+
+#[cfg(feature = "nightly")]
 extern crate test;
+
 #[macro_use]
 extern crate clap;
 

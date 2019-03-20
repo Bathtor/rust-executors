@@ -11,7 +11,12 @@ use std::default::Default;
 use std::thread;
 use std::sync::Arc;
 use synchronoise::CountdownEvent;
+
+#[cfg(feature = "nightly")]
 use test::black_box;
+
+#[cfg(not(feature = "nightly"))]
+fn black_box<T>(dummy: T) -> T { dummy }
 
 #[derive(Clone, Debug)]
 pub struct ExperimentSettings {

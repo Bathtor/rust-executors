@@ -10,6 +10,6 @@ OUT_LOC="out.csv"
 rm $OUT_LOC;
 for i in $(seq $MIN_THREADS $MAX_THREADS); do
 	echo "Run $i starting";
-	$BIN_LOC -t $i -p $INPAR -m $MSGS -a $AMP -o $OUT_LOC --pre 100 --post 100 --skip-tpe;
+	$BIN_LOC -t $i -p $INPAR -m $MSGS -a $AMP -o $OUT_LOC --pre 10000 --post 10000 --skip-tpe;
 	echo "Run $i finished";
 done
