@@ -43,7 +43,7 @@ use threadpool::ThreadPool;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ThreadPoolExecutor {
     pool: ThreadPool,
     active: Arc<AtomicBool>,
@@ -72,6 +72,16 @@ impl ThreadPoolExecutor {
             pool,
             active: Arc::new(AtomicBool::new(true)),
         }
+    }
+}
+
+/// Create a thread pool with one thread per CPU.
+/// On machines with hyperthreading,
+/// this will create one thread per hyperthread.
+#[cfg(feature = "defaults")]
+impl Default for ThreadPoolExecutor {
+    fn default() -> Self {
+        ThreadPoolExecutor::new(num_cpus::get())
     }
 }
 
@@ -113,6 +123,19 @@ mod tests {
 
     use super::*;
     use std::time::Duration;
+
+    const LABEL: &'static str = "Threadpool";
+
+    #[test]
+    fn test_debug() {
+        let exec = ThreadPoolExecutor::new(2);
+        crate::tests::test_debug(&exec, LABEL);
+    }
+
+    #[test]
+    fn test_defaults() {
+        crate::tests::test_defaults::<ThreadPoolExecutor>(LABEL);
+    }
 
     #[test]
     fn run_with_two_threads() {

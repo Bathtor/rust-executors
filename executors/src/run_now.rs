@@ -27,7 +27,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RunNowExecutor {
     active: Arc<AtomicBool>,
 }
@@ -37,6 +37,14 @@ use super::*;
 impl RunNowExecutor {
     pub fn new() -> RunNowExecutor {
         RunNowExecutor { active: Arc::new(AtomicBool::new(true)) }
+    }
+}
+
+/// Create an executor running tasks on the invoking thread.
+#[cfg(feature = "defaults")]
+impl Default for RunNowExecutor {
+    fn default() -> Self {
+        RunNowExecutor::new()
     }
 }
 
@@ -76,6 +84,21 @@ mod tests {
 
     use super::*;
     use std::time::Duration;
+
+    const LABEL: &'static str = "Run Now";
+
+
+    #[test]
+    fn test_debug() {
+        let exec = RunNowExecutor::new();
+        crate::tests::test_debug(&exec, LABEL);
+    }
+
+    #[test]
+    fn test_defaults() {
+        crate::tests::test_defaults::<RunNowExecutor>(LABEL);
+    }
+
 
     #[test]
     fn run_tasks() {

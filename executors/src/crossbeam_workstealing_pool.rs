@@ -18,8 +18,8 @@
 //! standard [threadpool](https://crates.io/crates/threadpool), but the
 //! implementation runs faster, especially with multiple workers.
 //!
-//! Uses a per-thread local queues
-//! (based on [croosbeam-deque](https://crates.io/crates/crossbeam-deque))
+//! Uses per-thread local queues
+//! (based on [crossbeam-deque](https://crates.io/crates/crossbeam-deque))
 //! for internal scheduling (like a fork-join-pool) and a global queue
 //! (based on [crossbeam-channel](https://crates.io/crates/crossbeam-channel))
 //! for scheduling from external (non-worker) threads.
@@ -79,6 +79,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 use std::time::Duration;
 use std::vec::Vec;
+use num_cpus;
 #[cfg(feature = "ws-timed-fairness")]
 use time;
 
@@ -95,7 +96,7 @@ thread_local!(
     static LOCAL_JOB_QUEUE: UnsafeCell<Option<deque::Worker<Job>>> = UnsafeCell::new(Option::None);
 );
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ThreadPool {
     core: Arc<Mutex<ThreadPoolCore>>,
     global_sender: Arc<deque::Injector<Job>>,
@@ -138,6 +139,16 @@ impl ThreadPool {
             }
         }
         pool
+    }
+}
+
+/// Create a thread pool with one thread per CPU.
+/// On machines with hyperthreading,
+/// this will create one thread per hyperthread.
+#[cfg(feature = "defaults")]
+impl Default for ThreadPool {
+    fn default() -> Self {
+        ThreadPool::new(num_cpus::get())
     }
 }
 
@@ -216,11 +227,13 @@ impl Executor for ThreadPool {
 //    });
 //}
 
+#[derive(Debug)]
 struct WorkerEntry {
     control: channel::Sender<ControlMsg>,
     stealer: Option<JobStealer>,
 }
 
+#[derive(Debug)]
 struct ThreadPoolCore {
     global_injector: Arc<deque::Injector<Job>>,
     shutdown: Arc<AtomicBool>,
@@ -312,6 +325,7 @@ impl Drop for ThreadPoolCore {
     }
 }
 
+#[derive(Debug)]
 struct ThreadPoolWorker {
     id: u64,
     core: Weak<Mutex<ThreadPoolCore>>,
@@ -603,6 +617,19 @@ mod tests {
     use env_logger;
 
     use super::*;
+
+    const LABEL: &'static str = "Workstealing Pool";
+
+    #[test]
+    fn test_debug() {
+        let exec = ThreadPool::new(2);
+        crate::tests::test_debug(&exec, LABEL);
+    }
+
+    #[test]
+    fn test_defaults() {
+        crate::tests::test_defaults::<ThreadPool>(LABEL);
+    }
 
     #[test]
     fn run_with_two_threads() {

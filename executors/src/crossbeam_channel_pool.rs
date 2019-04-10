@@ -54,7 +54,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::thread;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ThreadPool {
     core: Arc<Mutex<ThreadPoolCore>>,
     sender: channel::Sender<JobMsg>,
@@ -102,7 +102,15 @@ impl ThreadPool {
     }
 }
 
-//impl !Sync for ThreadPool {}
+/// Create a thread pool with one thread per CPU.
+/// On machines with hyperthreading,
+/// this will create one thread per hyperthread.
+#[cfg(feature = "defaults")]
+impl Default for ThreadPool {
+    fn default() -> Self {
+        ThreadPool::new(num_cpus::get())
+    }
+}
 
 impl Executor for ThreadPool {
     fn execute<F>(&self, job: F)
@@ -174,6 +182,7 @@ fn spawn_worker(core: Arc<Mutex<ThreadPoolCore>>) {
     thread::spawn(move || worker.run());
 }
 
+#[derive(Debug)]
 struct ThreadPoolCore {
     sender: channel::Sender<JobMsg>,
     receiver: channel::Receiver<JobMsg>,
@@ -311,6 +320,20 @@ mod tests {
     use env_logger;
 
     use super::*;
+
+
+    const LABEL: &'static str = "Crossbeam Channel Pool";
+
+    #[test]
+    fn test_debug() {
+        let exec = ThreadPool::new(2);
+        crate::tests::test_debug(&exec, LABEL);
+    }
+
+    #[test]
+    fn test_defaults() {
+        crate::tests::test_defaults::<ThreadPool>(LABEL);
+    }
 
     #[test]
     fn run_with_two_threads() {
