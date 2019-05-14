@@ -5,7 +5,7 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![doc(html_root_url = "https://docs.rs/executors/0.4.3")]
+#![doc(html_root_url = "https://docs.rs/executors/0.4.4")]
 #![allow(unused_parens)]
 
 //! This crate provides a number of task executors all implementing the

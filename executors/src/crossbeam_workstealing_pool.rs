@@ -66,6 +66,7 @@
 use super::*;
 use crossbeam_channel as channel;
 use crossbeam_deque as deque;
+use crossbeam_utils::Backoff;
 //use std::sync::mpsc;
 use rand::prelude::*;
 use std::cell::UnsafeCell;
@@ -366,6 +367,7 @@ impl ThreadPoolWorker {
         self.register_stealer(local_stealer.clone());
         let sentinel = Sentinel::new(self.core.clone(), self.id);
         let max_wait = Duration::from_millis(MAX_WAIT_WORKER_MS);
+        let backoff = Backoff::new();
         'main: loop {
             let mut fairness_check = false;
             #[cfg(feature = "ws-timed-fairness")]
@@ -383,6 +385,7 @@ impl ThreadPoolWorker {
                             }
                             None => break 'local,
                         }
+                        backoff.reset();
                         #[cfg(not(feature = "ws-timed-fairness"))]
                         {
                             count += 1;
@@ -407,7 +410,10 @@ impl ThreadPoolWorker {
             'ctrl: loop {
                 match self.control.try_recv() {
                     Ok(msg) => match msg {
-                        ControlMsg::Stealers(l) => self.update_stealers(l),
+                        ControlMsg::Stealers(l) => {
+                            self.update_stealers(l);
+                            backoff.reset();
+                        },
                         ControlMsg::Stop(latch) => {
                             latch.decrement().expect("stop latch decrements");
                             break 'main;
@@ -432,6 +438,7 @@ impl ThreadPoolWorker {
             if let deque::Steal::Success(msg) = glob_res {
                 let Job(f) = msg;
                 f.call_box();
+                backoff.reset();
                 continue 'main;
             }
             // only go on if there was no work left on the local queue
@@ -443,6 +450,7 @@ impl ThreadPoolWorker {
                 if let deque::Steal::Success(msg) = stealer.steal() {
                         let Job(f) = msg;
                         f.call_box();
+                        backoff.reset();
                         continue 'main; // only steal once before checking locally again
                 }
             }
@@ -456,7 +464,11 @@ impl ThreadPoolWorker {
             //     }
             //     default(max_wait) => (),
             // }
-            thread::park_timeout(max_wait);
+            if backoff.is_completed() {
+                thread::park_timeout(max_wait);
+            } else {
+                backoff.snooze();
+            }
             // aaaaand starting over with 'local
         }
         sentinel.cancel();

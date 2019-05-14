@@ -3,7 +3,7 @@ name = "executors"
 # NB: When modifying, also modify:
 #   1. html_root_url in lib.rs
 #   2. number in readme (for breaking changes)
-version = "0.4.3"
+version = "0.4.4"
 authors = ["Lars Kroll <lkroll@kth.se>"]
 edition = "2018"
 description = "A collection of high-performance task executors."
@@ -20,7 +20,7 @@ default = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-timed-
 
 threadpool-exec = ["threadpool"]
 cb-channel-exec = ["crossbeam-channel"]
-workstealing-exec = ["crossbeam-channel", "crossbeam-deque", "rand"]
+workstealing-exec = ["crossbeam-channel", "crossbeam-deque", "rand", "crossbeam-utils"]
 defaults = ["num_cpus"]
 
 # In the workstealing executor, check the global queues every 1ms
@@ -33,6 +33,7 @@ log = "0.4"
 synchronoise = "0.4"
 crossbeam-channel = {version = "0.3", optional = true}
 threadpool = {version = "1.7", optional = true}
+crossbeam-utils = {version = "0.6", optional = true}
 crossbeam-deque = {version = "0.7", optional = true}
 time = {version = "0.1", optional = true}
 rand = {version = "0.6", optional = true}
