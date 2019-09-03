@@ -24,8 +24,8 @@
 //! exec.shutdown();
 //! ```
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct RunNowExecutor {
@@ -36,7 +36,9 @@ use super::*;
 
 impl RunNowExecutor {
     pub fn new() -> RunNowExecutor {
-        RunNowExecutor { active: Arc::new(AtomicBool::new(true)) }
+        RunNowExecutor {
+            active: Arc::new(AtomicBool::new(true)),
+        }
     }
 }
 
@@ -87,7 +89,6 @@ mod tests {
 
     const LABEL: &'static str = "Run Now";
 
-
     #[test]
     fn test_debug() {
         let exec = RunNowExecutor::new();
@@ -98,7 +99,6 @@ mod tests {
     fn test_defaults() {
         crate::tests::test_defaults::<RunNowExecutor>(LABEL);
     }
-
 
     #[test]
     fn run_tasks() {

@@ -6,7 +6,6 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 #![cfg_attr(feature = "nightly", feature(test))]
-
 #![allow(unused_parens)]
 extern crate executors;
 extern crate synchronoise;
@@ -21,16 +20,16 @@ extern crate clap;
 pub mod experiment;
 
 use crate::experiment::*;
-use executors::*;
-use executors::threadpool_executor::ThreadPoolExecutor as TPExecutor;
+use clap::{App, Arg};
 use executors::crossbeam_channel_pool::ThreadPool as CCExecutor;
 use executors::crossbeam_workstealing_pool::ThreadPool as CWSExecutor;
-use clap::{Arg, App};
+use executors::threadpool_executor::ThreadPoolExecutor as TPExecutor;
+use executors::*;
 use std::error::Error;
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::prelude::*;
 use std::path::Path;
-use std::fs::OpenOptions;
 
 fn main() {
     let app = App::new("executor-performance")
@@ -77,13 +76,13 @@ fn main() {
             Arg::with_name("skip-threadpool-executor")
             .long("skip-tpe")
             .help("Skip the test for the threadpool_executor as it can be VERY slow with multiple worker threads.")
-            .takes_value(false)            
+            .takes_value(false)
         ).arg(
             Arg::with_name("csv-file")
             .short("o")
             .long("output-csv")
             .help("Output results into the given CSV file as '<total #messages>,<threadpool result>,<cb-channel result>,<workstealing result>'")
-            .takes_value(true)            
+            .takes_value(true)
         );
     let opts = app.get_matches();
     let mut settings = ExperimentSettings::default();
@@ -138,7 +137,12 @@ fn main() {
 
 const NS_TO_S: f64 = 1.0 / (1000.0 * 1000.0 * 1000.0);
 
-fn run_experiments(settings: &ExperimentSettings, out: Option<File>, skip_tpe: bool, extra_infos: String) {
+fn run_experiments(
+    settings: &ExperimentSettings,
+    out: Option<File>,
+    skip_tpe: bool,
+    extra_infos: String,
+) {
     let total_messages = settings.total_messages() as f64;
 
     let tpe_res = if !skip_tpe {
@@ -169,11 +173,15 @@ fn run_experiments(settings: &ExperimentSettings, out: Option<File>, skip_tpe: b
     };
     match out {
         Some(mut f) => {
-            let csv = format!("{},{},{},{},{}\n", total_messages,extra_infos,tpe_res, cc_res, cws_res);
-            f.write_all(csv.as_bytes()).expect("Output could not be written");
+            let csv = format!(
+                "{},{},{},{},{}\n",
+                total_messages, extra_infos, tpe_res, cc_res, cws_res
+            );
+            f.write_all(csv.as_bytes())
+                .expect("Output could not be written");
             f.flush().expect("Output could not be flushed");
         }
-        None => ()
+        None => (),
     }
 }
 

@@ -8,15 +8,17 @@
 
 use super::*;
 use std::default::Default;
-use std::thread;
 use std::sync::Arc;
+use std::thread;
 use synchronoise::CountdownEvent;
 
 #[cfg(feature = "nightly")]
 use test::black_box;
 
 #[cfg(not(feature = "nightly"))]
-fn black_box<T>(dummy: T) -> T { dummy }
+fn black_box<T>(dummy: T) -> T {
+    dummy
+}
 
 #[derive(Clone, Debug)]
 pub struct ExperimentSettings {
@@ -149,9 +151,8 @@ impl<'a, E: Executor + 'static> Experiment<'a, E> {
             thread::spawn(move || {
                 for _ in 0..msgs {
                     let amp_exec = thread_exec.clone();
-                    thread_exec.execute(move || {
-                        amplify(amp_exec, pre_work, post_work, amplification)
-                    });
+                    thread_exec
+                        .execute(move || amplify(amp_exec, pre_work, post_work, amplification));
                 }
                 let amp_exec = thread_exec.clone();
                 thread_exec.execute(move || {
@@ -163,9 +164,9 @@ impl<'a, E: Executor + 'static> Experiment<'a, E> {
     }
 
     pub fn cleanup(self) {
-        self.exec.shutdown().expect(
-            "Executor didn't shut down properly",
-        );
+        self.exec
+            .shutdown()
+            .expect("Executor didn't shut down properly");
     }
 }
 
@@ -184,9 +185,7 @@ fn amplify<E: Executor + 'static>(exec: E, pre_work: u64, post_work: u64, remain
     black_box(do_work(pre_work));
     if (remaining > 0) {
         let amp_exec = exec.clone();
-        exec.execute(move || {
-            amplify(amp_exec, pre_work, post_work, remaining - 1)
-        });
+        exec.execute(move || amplify(amp_exec, pre_work, post_work, remaining - 1));
     }
     black_box(do_work(post_work));
 }

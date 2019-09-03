@@ -9,10 +9,10 @@
 use std::fmt::Debug;
 
 /// A common trait for task executors.
-/// 
-/// All implementations need to allow cloning to create new handles to 
+///
+/// All implementations need to allow cloning to create new handles to
 /// the same executor, and they need to be safe to pass to threads.
-pub trait Executor : Clone+Send {
+pub trait Executor: Clone + Send {
     /// Executes the function `job` on the `Executor`.
     ///
     /// # Examples
@@ -34,11 +34,11 @@ pub trait Executor : Clone+Send {
     fn execute<F>(&self, job: F)
     where
         F: FnOnce() + Send + 'static;
-        
+
     /// Shutdown the `Executor` without waiting.
     ///
-    /// This method can be used from one of the worker threads 
-    /// (if the `Executor` uses threads) 
+    /// This method can be used from one of the worker threads
+    /// (if the `Executor` uses threads)
     /// without risk of deadlocking.
     ///
     /// # Examples
@@ -59,8 +59,8 @@ pub trait Executor : Clone+Send {
     /// std::thread::sleep(std::time::Duration::from_secs(1)); // or wait with a barrier
     /// executor.execute(|| println!("doesn't work!"));
     /// ```
-    fn shutdown_async(&self); 
-    
+    fn shutdown_async(&self);
+
     /// Shutdown an `Executor` and wait for it to shut down all workers.
     ///
     /// This method can be ONLY be used from *outside* the workers
@@ -84,7 +84,7 @@ pub trait Executor : Clone+Send {
     fn shutdown(self) -> Result<(), String> {
         self.shutdown_borrowed()
     }
-    
+
     /// Same as `shutdown` but without consuming self
     ///
     /// Meant for use with trait object wrappers.
@@ -110,9 +110,9 @@ pub(crate) fn ignore<V>(_: V) -> () {
 /// A trait to log errors when ignoring results.
 ///
 /// # Examples
-/// 
+///
 /// Log to warn when ignoring a `Result`
-/// 
+///
 /// ```ignore
 /// use executors::common::*;
 /// let res: Result<(), String> = Err(String::from("Test error please ignore."));

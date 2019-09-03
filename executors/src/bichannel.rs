@@ -17,18 +17,18 @@ use std::sync::mpsc;
 use std::sync::mpsc::*;
 use std::time::Duration;
 
-/// Creates a new asynchronous bidirectional channel, returning the 
-/// the two asymmetrical Endpoints. 
+/// Creates a new asynchronous bidirectional channel, returning the
+/// the two asymmetrical Endpoints.
 /// All data sent on an Endpoint will become available on the other Endpoint
-/// in the same order as it was sent, and no send will block the calling thread 
+/// in the same order as it was sent, and no send will block the calling thread
 /// (this channel has an "infinite buffer")
 /// The recv will block until a message is available.
 ///
 /// Neither Endpoint maye be cloned, but both may be send to different threads.
 ///
-/// If either Endpoint is disconnected while trying to send, 
-/// the send/recv methods will return a SendError/RecvError. 
-/// 
+/// If either Endpoint is disconnected while trying to send,
+/// the send/recv methods will return a SendError/RecvError.
+///
 pub fn bichannel<Left, Right>() -> (Endpoint<Right, Left>, Endpoint<Left, Right>) {
     let (tx_left, rx_left) = mpsc::channel::<Left>();
     let (tx_right, rx_right) = mpsc::channel::<Right>();
@@ -44,10 +44,7 @@ pub struct Endpoint<In, Out> {
 
 impl<In, Out> Endpoint<In, Out> {
     fn new(sender: Sender<Out>, receiver: Receiver<In>) -> Endpoint<In, Out> {
-        Endpoint {
-            sender, 
-            receiver,
-        }
+        Endpoint { sender, receiver }
     }
     pub fn send(&self, t: Out) -> Result<(), SendError<Out>> {
         self.sender.send(t)
@@ -77,10 +74,10 @@ mod tests {
     use env_logger;
 
     use super::*;
-    use std::time::Duration;
-    use std::thread;
-    use std::sync::Arc;
     use crate::common::ignore;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
     use synchronoise::CountdownEvent;
     struct Ping;
     struct Pong;

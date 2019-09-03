@@ -8,7 +8,7 @@
 
 //! A thread pool `Executor` used to execute functions in parallel.
 //!
-//! This implementation is simply a wrapper for 
+//! This implementation is simply a wrapper for
 //! [threadpool](https://crates.io/crates/threadpool)
 //! to allow it to be used where the `Executor` trait is expected.
 //!
@@ -39,9 +39,9 @@
 //! ```
 
 use super::*;
-use threadpool::ThreadPool;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use threadpool::ThreadPool;
 
 #[derive(Clone, Debug)]
 pub struct ThreadPoolExecutor {

@@ -49,10 +49,10 @@
 use super::*;
 
 use crossbeam_channel as channel;
-use std::sync::{Arc, Weak, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, Weak};
 use std::thread;
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct ThreadPool {
@@ -119,23 +119,25 @@ impl Executor for ThreadPool {
     {
         // NOTE: This check costs about 150k schedulings/s in a 2 by 2 experiment over 20 runs.
         if !self.shutdown.load(Ordering::SeqCst) {
-            self.sender.send(JobMsg::Job(Box::new(job))).unwrap_or_else(|e| error!("Error submitting job: {:?}", e));
+            self.sender
+                .send(JobMsg::Job(Box::new(job)))
+                .unwrap_or_else(|e| error!("Error submitting job: {:?}", e));
         } else {
             warn!("Ignoring job as pool is shutting down.");
         }
     }
 
     fn shutdown_async(&self) {
-        if !self.shutdown.compare_and_swap(
-            false,
-            true,
-            Ordering::SeqCst,
-        )
+        if !self
+            .shutdown
+            .compare_and_swap(false, true, Ordering::SeqCst)
         {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
             for _ in 0..self.threads {
-                self.sender.send(JobMsg::Stop(latch.clone())).unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
+                self.sender
+                    .send(JobMsg::Stop(latch.clone()))
+                    .unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
             }
         } else {
             warn!("Pool is already shutting down!");
@@ -143,16 +145,16 @@ impl Executor for ThreadPool {
     }
 
     fn shutdown_borrowed(&self) -> Result<(), String> {
-        if !self.shutdown.compare_and_swap(
-            false,
-            true,
-            Ordering::SeqCst,
-        )
+        if !self
+            .shutdown
+            .compare_and_swap(false, true, Ordering::SeqCst)
         {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
             for _ in 0..self.threads {
-                self.sender.send(JobMsg::Stop(latch.clone())).unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
+                self.sender
+                    .send(JobMsg::Stop(latch.clone()))
+                    .unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
             }
             let timeout = Duration::from_millis(5000);
             let remaining = latch.wait_timeout(timeout);
@@ -173,7 +175,6 @@ impl Executor for ThreadPool {
 }
 
 fn spawn_worker(core: Arc<Mutex<ThreadPoolCore>>) {
-
     let id = {
         let mut guard = core.lock().unwrap();
         guard.new_worker_id()
@@ -201,16 +202,16 @@ impl ThreadPoolCore {
 
 impl Drop for ThreadPoolCore {
     fn drop(&mut self) {
-        if !self.shutdown.compare_and_swap(
-            false,
-            true,
-            Ordering::SeqCst,
-        )
+        if !self
+            .shutdown
+            .compare_and_swap(false, true, Ordering::SeqCst)
         {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
             for _ in 0..self.threads {
-                self.sender.send(JobMsg::Stop(latch.clone())).unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
+                self.sender
+                    .send(JobMsg::Stop(latch.clone()))
+                    .unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
             }
             let timeout = Duration::from_millis(5000);
             let remaining = latch.wait_timeout(timeout);
@@ -236,7 +237,6 @@ struct ThreadPoolWorker {
 
 impl ThreadPoolWorker {
     fn new(id: usize, core: Arc<Mutex<ThreadPoolCore>>) -> ThreadPoolWorker {
-
         let recv = {
             let guard = core.lock().unwrap();
             guard.receiver.clone()
@@ -320,7 +320,6 @@ mod tests {
     use env_logger;
 
     use super::*;
-
 
     const LABEL: &'static str = "Crossbeam Channel Pool";
 

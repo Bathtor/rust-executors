@@ -68,6 +68,7 @@ use crossbeam_channel as channel;
 use crossbeam_deque as deque;
 use crossbeam_utils::Backoff;
 //use std::sync::mpsc;
+use num_cpus;
 use rand::prelude::*;
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
@@ -80,7 +81,6 @@ use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 use std::time::Duration;
 use std::vec::Vec;
-use num_cpus;
 #[cfg(feature = "ws-timed-fairness")]
 use time;
 
@@ -166,11 +166,11 @@ impl Executor for ThreadPool {
                 match *qo.get() {
                     Some(ref q) => {
                         q.push(msg);
-                    },
+                    }
                     None => {
                         debug!("Scheduling on global pool.");
                         self.global_sender.push(msg);
-                    },
+                    }
                 }
             })
         } else {
@@ -196,7 +196,10 @@ impl Executor for ThreadPool {
             {
                 let guard = self.core.lock().unwrap();
                 for worker in guard.workers.values() {
-                    worker.control.send(ControlMsg::Stop(latch.clone())).unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
+                    worker
+                        .control
+                        .send(ControlMsg::Stop(latch.clone()))
+                        .unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
                 }
             }
             let remaining = latch.wait_timeout(Duration::from_millis(MAX_WAIT_SHUTDOWN_MS));
@@ -297,7 +300,10 @@ impl ThreadPoolCore {
                 .filter(|s| s.id() != *wid)
                 .cloned()
                 .collect();
-            worker.control.send(ControlMsg::Stealers(l)).unwrap_or_else(|e| error!("Error submitting Stealer msg: {:?}", e));
+            worker
+                .control
+                .send(ControlMsg::Stealers(l))
+                .unwrap_or_else(|e| error!("Error submitting Stealer msg: {:?}", e));
         }
     }
 
@@ -413,7 +419,7 @@ impl ThreadPoolWorker {
                         ControlMsg::Stealers(l) => {
                             self.update_stealers(l);
                             backoff.reset();
-                        },
+                        }
                         ControlMsg::Stop(latch) => {
                             latch.decrement().expect("stop latch decrements");
                             break 'main;
@@ -448,10 +454,10 @@ impl ThreadPoolWorker {
             // try to steal something!
             for stealer in self.stealers.iter() {
                 if let deque::Steal::Success(msg) = stealer.steal() {
-                        let Job(f) = msg;
-                        f.call_box();
-                        backoff.reset();
-                        continue 'main; // only steal once before checking locally again
+                    let Job(f) = msg;
+                    f.call_box();
+                    backoff.reset();
+                    continue 'main; // only steal once before checking locally again
                 }
             }
             // there wasn't anything to steal either...let's just wait for a bit
@@ -655,7 +661,8 @@ mod tests {
         pool.execute(move || ignore(latch3.decrement()));
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
-        pool.shutdown().unwrap_or_else(|e| error!("Error during pool shutdown {:?}",e));
+        pool.shutdown()
+            .unwrap_or_else(|e| error!("Error during pool shutdown {:?}", e));
     }
 
     #[test]
@@ -678,7 +685,8 @@ mod tests {
         });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
-        pool.shutdown().unwrap_or_else(|e| error!("Error during pool shutdown {:?}",e));
+        pool.shutdown()
+            .unwrap_or_else(|e| error!("Error during pool shutdown {:?}", e));
     }
 
     #[test]
@@ -694,7 +702,8 @@ mod tests {
         pool.execute(move || ignore(latch3.decrement()));
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
-        pool.shutdown().unwrap_or_else(|e| error!("Error during pool shutdown {:?}",e));
+        pool.shutdown()
+            .unwrap_or_else(|e| error!("Error during pool shutdown {:?}", e));
     }
 
     #[test]
@@ -713,7 +722,8 @@ mod tests {
         });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
-        pool.shutdown().unwrap_or_else(|e| error!("Error during pool shutdown {:?}",e));
+        pool.shutdown()
+            .unwrap_or_else(|e| error!("Error during pool shutdown {:?}", e));
     }
 
     #[test]
