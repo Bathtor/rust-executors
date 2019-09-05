@@ -20,6 +20,6 @@ features = ["color"]
 [dependencies.executors]
 path = "../executors/"
 default-features = true # to use job counting instead of timed global check set this to false and uncomment next line
-# features = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-no-park"]
+# features = ["threadpool-exec", "cb-channel-exec", "workstealing-exec"]
 # or to use timed and no parking uncomment next line
 # features = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-no-park", "ws-timed-fairness"]
