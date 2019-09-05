@@ -78,7 +78,7 @@ This corresponds to a IO-handling-server-style workload, where the vast majority
 (Units are in *mio tasks/s*)
 
 | #Threads | TP   | CBCP | CBWP (default-features) | CBWP (`ws-no-park`) | CBWP (no `ws-timed-fairness`) |
-|---------:|-----:|---- :|------------------------:|--------------------:|------------------------------:|
+|---------:|-----:|-----:|------------------------:|--------------------:|------------------------------:|
 | 1        | 2.4  | 3.1  | 3.4                     | 3.5                 | 3.5                           |
 | 2        | 1.2  | 2.8  | 3.3                     | 3.4                 | 3.4                           |
 | 3        | 1.5  | 3.1  | 4.0                     | 4.0                 | 4.0                           |
@@ -100,7 +100,7 @@ This corresponds to a message-passing-style (or fork-join) workload, where the v
 (Units are in *mio tasks/s*)
 
 | #Threads | TP   | CBCP | CBWP (default-features) | CBWP (`ws-no-park`) | CBWP (no `ws-timed-fairness`) |
-|---------:|-----:|---- :|------------------------:|--------------------:|------------------------------:|
+|---------:|-----:|-----:|------------------------:|--------------------:|------------------------------:|
 | 1        | 6.8  | 9.4  | 10.9                    | 10.9                | 10.9                          |
 | 2        | 2.9  | 5.6  | 7.4                     | 6.8                 | 7.4                           |
 | 3        | 3.3  | 6.7  | 9.0                     | 8.3                 | 8.5                           |
