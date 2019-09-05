@@ -45,12 +45,12 @@
 //!
 //! ```
 //! use executors::*;
-//! use executors::crossbeam_workstealing_pool::ThreadPool;
+//! use executors::crossbeam_workstealing_pool;
 //! use std::sync::mpsc::channel;
 //!
 //! let n_workers = 4;
 //! let n_jobs = 8;
-//! let pool = ThreadPool::new(n_workers);
+//! let pool = crossbeam_workstealing_pool::small_pool(n_workers);
 //!
 //! let (tx, rx) = channel();
 //! for _ in 0..n_jobs {
@@ -68,6 +68,8 @@ use crossbeam_channel as channel;
 use crossbeam_deque as deque;
 use crossbeam_utils::Backoff;
 //use std::sync::mpsc;
+use crate::parker;
+use crate::parker::{DynParker, Parker};
 use num_cpus;
 use rand::prelude::*;
 use std::cell::UnsafeCell;
@@ -84,11 +86,70 @@ use std::vec::Vec;
 #[cfg(feature = "ws-timed-fairness")]
 use time;
 
+/// Creates a thread pool with support for up to 32 threads.
+///
+/// This a convenience function, which is equivalent to `ThreadPool::new(threads, parker::small())`.
+pub fn small_pool(threads: usize) -> ThreadPool<parker::StaticParker<parker::SmallThreadData>> {
+    let p = parker::small();
+    ThreadPool::new(threads, p)
+}
+/// Creates a thread pool with support for up to 64 threads.
+///
+/// This a convenience function, which is equivalent to `ThreadPool::new(threads, parker::large())`.
+pub fn large_pool(threads: usize) -> ThreadPool<parker::StaticParker<parker::LargeThreadData>> {
+    let p = parker::large();
+    ThreadPool::new(threads, p)
+}
+
+/// Creates a thread pool with support for an arbitrary* number threads.
+///
+/// (*Well, technically the limit is something like `std::usize::MAX`.)
+///
+/// This a convenience function, which is equivalent to `ThreadPool::new(threads, parker::dyamic())`.
+pub fn dyn_pool(threads: usize) -> ThreadPool<parker::StaticParker<parker::DynamicThreadData>> {
+    let p = parker::dynamic();
+    ThreadPool::new(threads, p)
+}
+
+/// Creates a new thread pool capable of executing `threads` number of jobs concurrently.
+///
+/// Decides on the parker implementation automatically, but relies on dynamic dispatch to abstract
+/// over the chosen implementation, which comes with a slight performance cost.
+///
+/// # Panics
+///
+/// This function will panic if `threads` is 0.
+///
+/// # Examples
+///
+/// Create a new thread pool capable of executing four jobs concurrently:
+///
+/// ```
+/// use executors::*;
+/// use executors::crossbeam_workstealing_pool;
+///
+/// let pool = crossbeam_workstealing_pool::pool_with_auto_parker(4);
+/// ```
+pub fn pool_with_auto_parker(threads: usize) -> ThreadPool<DynParker> {
+    if threads <= parker::SmallThreadData::MAX_THREADS {
+        let p = parker::small().dynamic().unwrap();
+        let pool = ThreadPool::new(threads, p);
+        pool
+    } else if threads <= parker::LargeThreadData::MAX_THREADS {
+        let p = parker::large().dynamic().unwrap();
+        let pool = ThreadPool::new(threads, p);
+        pool
+    } else {
+        let p = parker::dynamic().dynamic().unwrap();
+        let pool = ThreadPool::new(threads, p);
+        pool
+    }
+}
+
 #[cfg(feature = "ws-timed-fairness")]
 const CHECK_GLOBAL_INTERVAL_NS: u64 = timeconstants::NS_PER_MS;
 #[cfg(not(feature = "ws-timed-fairness"))]
 const CHECK_GLOBAL_MAX_MSGS: u64 = 100;
-const MAX_WAIT_WORKER_MS: u64 = 10;
 const MAX_WAIT_SHUTDOWN_MS: u64 = 5 * timeconstants::MS_PER_S;
 
 // UnsafeCell has 10x the performance of RefCell
@@ -98,19 +159,29 @@ thread_local!(
 );
 
 #[derive(Clone, Debug)]
-pub struct ThreadPool {
-    core: Arc<Mutex<ThreadPoolCore>>,
+pub struct ThreadPool<P>
+where
+    P: Parker + Clone + 'static,
+{
+    core: Arc<Mutex<ThreadPoolCore<P>>>,
     global_sender: Arc<deque::Injector<Job>>,
     threads: usize,
     shutdown: Arc<AtomicBool>,
+    parker: P,
 }
 
-impl ThreadPool {
+impl<P> ThreadPool<P>
+where
+    P: Parker + Clone + 'static,
+{
     /// Creates a new thread pool capable of executing `threads` number of jobs concurrently.
+    ///
+    /// Must supply a `parker` that can handle the requested number of threads.
     ///
     /// # Panics
     ///
     /// This function will panic if `threads` is 0.
+    /// It will also panic if `threads` is larger than the `ThreadData::MAX_THREADS` value of the provided `parker`.
     ///
     /// # Examples
     ///
@@ -120,18 +191,22 @@ impl ThreadPool {
     /// use executors::*;
     /// use executors::crossbeam_workstealing_pool::ThreadPool;
     ///
-    /// let pool = ThreadPool::new(4);
+    /// let pool = ThreadPool::new(4, parker::small());
     /// ```
-    pub fn new(threads: usize) -> ThreadPool {
+    pub fn new(threads: usize, parker: P) -> ThreadPool<P> {
         assert!(threads > 0);
+        if let Some(max) = parker.max_threads() {
+            assert!(threads <= max);
+        }
         let injector = Arc::new(deque::Injector::new());
         let shutdown = Arc::new(AtomicBool::new(false));
-        let core = ThreadPoolCore::new(injector.clone(), shutdown.clone(), threads);
+        let core = ThreadPoolCore::new(injector.clone(), shutdown.clone(), threads, parker.clone());
         let pool = ThreadPool {
             core: Arc::new(Mutex::new(core)),
             global_sender: injector.clone(),
             threads,
             shutdown,
+            parker,
         };
         {
             let mut guard = pool.core.lock().unwrap();
@@ -147,15 +222,19 @@ impl ThreadPool {
 /// On machines with hyperthreading,
 /// this will create one thread per hyperthread.
 #[cfg(feature = "defaults")]
-impl Default for ThreadPool {
+impl Default for ThreadPool<DynParker> {
     fn default() -> Self {
-        ThreadPool::new(num_cpus::get())
+        let p = parker::dynamic().dynamic().unwrap();
+        ThreadPool::new(num_cpus::get(), p)
     }
 }
 
 //impl !Sync for ThreadPool {}
 
-impl Executor for ThreadPool {
+impl<P> Executor for ThreadPool<P>
+where
+    P: Parker + Clone + 'static,
+{
     fn execute<F>(&self, job: F)
     where
         F: FnOnce() + Send + 'static,
@@ -170,6 +249,8 @@ impl Executor for ThreadPool {
                     None => {
                         debug!("Scheduling on global pool.");
                         self.global_sender.push(msg);
+                        #[cfg(not(feature = "ws-no-park"))]
+                        self.parker.unpark_one();
                     }
                 }
             })
@@ -202,6 +283,8 @@ impl Executor for ThreadPool {
                         .unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
                 }
             }
+            #[cfg(not(feature = "ws-no-park"))]
+            self.parker.unpark_all(); // gotta wake up all threads so they can get shut down
             let remaining = latch.wait_timeout(Duration::from_millis(MAX_WAIT_SHUTDOWN_MS));
             if remaining == 0 {
                 debug!("All threads shut down");
@@ -238,30 +321,39 @@ struct WorkerEntry {
 }
 
 #[derive(Debug)]
-struct ThreadPoolCore {
+struct ThreadPoolCore<P>
+where
+    P: Parker + Clone + 'static,
+{
     global_injector: Arc<deque::Injector<Job>>,
     shutdown: Arc<AtomicBool>,
     _threads: usize,
-    ids: u64,
-    workers: BTreeMap<u64, WorkerEntry>,
+    ids: usize,
+    workers: BTreeMap<usize, WorkerEntry>,
+    parker: P,
 }
 
-impl ThreadPoolCore {
+impl<P> ThreadPoolCore<P>
+where
+    P: Parker + Clone + 'static,
+{
     fn new(
         global_injector: Arc<deque::Injector<Job>>,
         shutdown: Arc<AtomicBool>,
         threads: usize,
-    ) -> ThreadPoolCore {
+        parker: P,
+    ) -> ThreadPoolCore<P> {
         ThreadPoolCore {
             global_injector,
             shutdown,
             _threads: threads,
             ids: 0,
             workers: BTreeMap::new(),
+            parker,
         }
     }
 
-    fn new_worker_id(&mut self) -> u64 {
+    fn new_worker_id(&mut self) -> usize {
         let id = self.ids;
         self.ids += 1;
         id
@@ -279,7 +371,7 @@ impl ThreadPoolCore {
         self.send_stealers();
     }
 
-    fn drop_worker(&mut self, id: u64) {
+    fn drop_worker(&mut self, id: usize) {
         debug!("Dropping worker #{}", id);
         self.workers
             .remove(&id)
@@ -307,7 +399,7 @@ impl ThreadPoolCore {
         }
     }
 
-    fn spawn_worker(&mut self, core: Arc<Mutex<ThreadPoolCore>>) {
+    fn spawn_worker(&mut self, core: Arc<Mutex<ThreadPoolCore<P>>>) {
         let id = self.new_worker_id();
         let (tx_control, rx_control) = channel::unbounded();
         let worker = WorkerEntry {
@@ -316,14 +408,18 @@ impl ThreadPoolCore {
         };
         let recv = self.global_injector.clone();
         self.workers.insert(id, worker);
+        let p = self.parker.clone();
         thread::spawn(move || {
-            let mut worker = ThreadPoolWorker::new(id, recv, rx_control, core);
+            let mut worker = ThreadPoolWorker::new(id, recv, rx_control, core, p);
             worker.run()
         });
     }
 }
 
-impl Drop for ThreadPoolCore {
+impl<P> Drop for ThreadPoolCore<P>
+where
+    P: Parker + Clone + 'static,
+{
     fn drop(&mut self) {
         if !self.shutdown.load(Ordering::SeqCst) {
             warn!("Threadpools should be shut down before deallocating.");
@@ -333,22 +429,30 @@ impl Drop for ThreadPoolCore {
 }
 
 #[derive(Debug)]
-struct ThreadPoolWorker {
-    id: u64,
-    core: Weak<Mutex<ThreadPoolCore>>,
+struct ThreadPoolWorker<P>
+where
+    P: Parker + Clone + 'static,
+{
+    id: usize,
+    core: Weak<Mutex<ThreadPoolCore<P>>>,
     global_injector: Arc<deque::Injector<Job>>,
     control: channel::Receiver<ControlMsg>,
     stealers: Vec<JobStealer>,
     random: ThreadRng,
+    parker: P,
 }
 
-impl ThreadPoolWorker {
+impl<P> ThreadPoolWorker<P>
+where
+    P: Parker + Clone + 'static,
+{
     fn new(
-        id: u64,
+        id: usize,
         global_injector: Arc<deque::Injector<Job>>,
         control: channel::Receiver<ControlMsg>,
-        core: Arc<Mutex<ThreadPoolCore>>,
-    ) -> ThreadPoolWorker {
+        core: Arc<Mutex<ThreadPoolCore<P>>>,
+        parker: P,
+    ) -> ThreadPoolWorker<P> {
         ThreadPoolWorker {
             id,
             core: Arc::downgrade(&core),
@@ -356,9 +460,10 @@ impl ThreadPoolWorker {
             control,
             stealers: Vec::new(),
             random: rand::thread_rng(),
+            parker,
         }
     }
-    fn id(&self) -> &u64 {
+    fn id(&self) -> &usize {
         &self.id
     }
     fn run(&mut self) {
@@ -372,7 +477,6 @@ impl ThreadPoolWorker {
         let local_stealer = JobStealer::new(local_stealer_raw, self.id);
         self.register_stealer(local_stealer.clone());
         let sentinel = Sentinel::new(self.core.clone(), self.id);
-        let max_wait = Duration::from_millis(MAX_WAIT_WORKER_MS);
         let backoff = Backoff::new();
         'main: loop {
             let mut fairness_check = false;
@@ -449,6 +553,8 @@ impl ThreadPoolWorker {
             }
             // only go on if there was no work left on the local queue
             if fairness_check {
+                #[cfg(not(feature = "ws-no-park"))]
+                self.parker.unpark_one(); // wake up more threads if there is more work to do
                 continue 'main;
             }
             // try to steal something!
@@ -460,18 +566,11 @@ impl ThreadPoolWorker {
                     continue 'main; // only steal once before checking locally again
                 }
             }
-            // there wasn't anything to steal either...let's just wait for a bit
-            // select! {
-            //     recv(self.global_injector) -> msg => {
-            //         if let Ok(m) = msg {
-            //             let Job(f) = m;
-            //             f.call_box();
-            //         }
-            //     }
-            //     default(max_wait) => (),
-            // }
             if backoff.is_completed() {
-                thread::park_timeout(max_wait);
+                #[cfg(feature = "ws-no-park")]
+                backoff.snooze();
+                #[cfg(not(feature = "ws-no-park"))]
+                self.parker.park(*self.id());
             } else {
                 backoff.snooze();
             }
@@ -525,14 +624,14 @@ impl<F: FnOnce()> FnBox for F {
 #[derive(Clone)]
 struct JobStealer {
     inner: deque::Stealer<Job>,
-    id: u64,
+    id: usize,
 }
 
 impl JobStealer {
-    fn new(stealer: deque::Stealer<Job>, id: u64) -> JobStealer {
+    fn new(stealer: deque::Stealer<Job>, id: usize) -> JobStealer {
         JobStealer { inner: stealer, id }
     }
-    fn id(&self) -> u64 {
+    fn id(&self) -> usize {
         self.id
     }
 }
@@ -574,14 +673,20 @@ impl Debug for ControlMsg {
     }
 }
 
-struct Sentinel {
-    core: Weak<Mutex<ThreadPoolCore>>,
-    id: u64,
+struct Sentinel<P>
+where
+    P: Parker + Clone + 'static,
+{
+    core: Weak<Mutex<ThreadPoolCore<P>>>,
+    id: usize,
     active: bool,
 }
 
-impl Sentinel {
-    fn new(core: Weak<Mutex<ThreadPoolCore>>, id: u64) -> Sentinel {
+impl<P> Sentinel<P>
+where
+    P: Parker + Clone + 'static,
+{
+    fn new(core: Weak<Mutex<ThreadPoolCore<P>>>, id: usize) -> Sentinel<P> {
         Sentinel {
             core,
             id,
@@ -595,7 +700,10 @@ impl Sentinel {
     }
 }
 
-impl Drop for Sentinel {
+impl<P> Drop for Sentinel<P>
+where
+    P: Parker + Clone + 'static,
+{
     fn drop(&mut self) {
         if self.active {
             warn!("Active worker {} died! Restarting...", self.id);
@@ -640,13 +748,13 @@ mod tests {
 
     #[test]
     fn test_debug() {
-        let exec = ThreadPool::new(2);
+        let exec = ThreadPool::new(2, parker::small());
         crate::tests::test_debug(&exec, LABEL);
     }
 
     #[test]
     fn test_defaults() {
-        crate::tests::test_defaults::<ThreadPool>(LABEL);
+        crate::tests::test_defaults::<ThreadPool<DynParker>>(LABEL);
     }
 
     #[test]
@@ -654,7 +762,7 @@ mod tests {
         let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
-        let pool = ThreadPool::new(2);
+        let pool = ThreadPool::new(2, parker::small());
         let latch2 = latch.clone();
         let latch3 = latch.clone();
         pool.execute(move || ignore(latch2.decrement()));
@@ -670,7 +778,7 @@ mod tests {
         let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(4));
-        let pool = ThreadPool::new(2);
+        let pool = ThreadPool::new(2, parker::small());
         let pool2 = pool.clone();
         let pool3 = pool.clone();
         let latch2 = latch.clone();
@@ -694,7 +802,7 @@ mod tests {
         let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
-        let pool = ThreadPool::new(1);
+        let pool = ThreadPool::new(1, parker::small());
         let latch2 = latch.clone();
         let latch3 = latch.clone();
         pool.execute(move || ignore(latch2.decrement()));
@@ -711,7 +819,7 @@ mod tests {
         let _ = env_logger::try_init();
 
         let latch = Arc::new(CountdownEvent::new(2));
-        let pool = ThreadPool::new(1);
+        let pool = ThreadPool::new(1, parker::small());
         let pool2 = pool.clone();
         let latch2 = latch.clone();
         let latch3 = latch.clone();
@@ -749,7 +857,7 @@ mod tests {
     fn shutdown_from_worker() {
         let _ = env_logger::try_init();
 
-        let pool = ThreadPool::new(1);
+        let pool = ThreadPool::new(1, parker::small());
         let pool2 = pool.clone();
         let latch = Arc::new(CountdownEvent::new(2));
         let latch2 = latch.clone();
@@ -773,7 +881,7 @@ mod tests {
     fn shutdown_external() {
         let _ = env_logger::try_init();
 
-        let pool = ThreadPool::new(1);
+        let pool = ThreadPool::new(1, parker::small());
         let pool2 = pool.clone();
         let run_latch = Arc::new(CountdownEvent::new(1));
         let stop_latch = Arc::new(CountdownEvent::new(1));
@@ -792,7 +900,7 @@ mod tests {
     fn dealloc_on_handle_drop() {
         let _ = env_logger::try_init();
 
-        let pool = ThreadPool::new(1);
+        let pool = ThreadPool::new(1, parker::small());
         let core = Arc::downgrade(&pool.core);
         drop(pool);
         std::thread::sleep(std::time::Duration::from_secs(1));

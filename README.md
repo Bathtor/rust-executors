@@ -13,19 +13,19 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-executors = "0.4"
+executors = "0.5"
 ```
 
 You can use, for example, the [crossbeam_workstealing_pool](https://docs.rs/executors/latest/executors/crossbeam_workstealing_pool/index.html) to schedule a number `n_jobs` over a number `n_workers` threads, and collect the results via an `mpsc::channel`.
 
 ```rust
 use executors::*;
-use executors::crossbeam_workstealing_pool::ThreadPool;
+use executors::crossbeam_workstealing_pool;
 use std::sync::mpsc::channel;
 
 let n_workers = 4;
 let n_jobs = 8;
-let pool = ThreadPool::new(n_workers);
+let pool = crossbeam_workstealing_pool::small_pool(n_workers);
 
 let (tx, rx) = channel();
 for _ in 0..n_jobs {
@@ -50,6 +50,14 @@ The crate `executor-performance` provides a performance testing suite for the pr
 In general, [crossbeam_workstealing_pool](https://docs.rs/executors/latest/executors/crossbeam_workstealing_pool/index.html) works best for workloads where the tasks on the worker threads spawn more and more tasks. If all tasks a spawned from a single thread that isn't part of the threadpool, then the [threadpool_executor](https://docs.rs/executors/latest/executors/threadpool_executor/index.html) tends perform best with single worker and [crossbeam_channel_pool](https://docs.rs/executors/latest/executors/crossbeam_channel_pool/index.html) performs best for a larger number of workers.
 
 If you don't know what hardware your code is going to run on, use the [crossbeam_workstealing_pool](https://docs.rs/executors/latest/executors/crossbeam_workstealing_pool/index.html). It tends to perform best on all the hardware I have tested (which is pretty much Intel processors like i7 and Xeon).
+
+### Throughput
+
+**TODO**: Fill me!
+
+### Latency
+
+**TODO**: Fill me!
 
 ## License
 

@@ -5,7 +5,7 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![doc(html_root_url = "https://docs.rs/executors/0.4.5")]
+#![doc(html_root_url = "https://docs.rs/executors/0.5.0")]
 #![allow(unused_parens)]
 
 //! This crate provides a number of task executors all implementing the
@@ -23,6 +23,7 @@ pub mod common;
 pub mod crossbeam_channel_pool;
 #[cfg(feature = "workstealing-exec")]
 pub mod crossbeam_workstealing_pool;
+pub mod parker;
 pub mod run_now;
 #[cfg(feature = "threadpool-exec")]
 pub mod threadpool_executor;
