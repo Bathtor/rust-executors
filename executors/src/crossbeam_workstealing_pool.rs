@@ -69,7 +69,7 @@ use crossbeam_deque as deque;
 use crossbeam_utils::Backoff;
 //use std::sync::mpsc;
 use crate::parker;
-use crate::parker::{DynParker, Parker};
+use crate::parker::{DynParker, ParkResult, Parker};
 use num_cpus;
 use rand::prelude::*;
 use std::cell::UnsafeCell;
@@ -466,6 +466,30 @@ where
     fn id(&self) -> &usize {
         &self.id
     }
+
+    fn abort_sleep(&self, backoff: &Backoff, parking: &mut bool, snoozing: &mut bool) -> () {
+        if *parking {
+            #[cfg(feature = "ws-no-park")]
+            unreachable!("parking should never be true in ws-no-park!");
+            #[cfg(not(feature = "ws-no-park"))]
+            {
+                self.parker.abort_park(*self.id());
+                *parking = false;
+            }
+        }
+        if *snoozing {
+            backoff.reset();
+            *snoozing = false;
+        }
+    }
+
+    #[cfg(not(feature = "ws-no-park"))]
+    fn stop_sleep(&self, backoff: &Backoff, parking: &mut bool, snoozing: &mut bool) -> () {
+        backoff.reset();
+        *snoozing = false;
+        *parking = false;
+    }
+
     fn run(&mut self) {
         debug!("Worker {} starting", self.id());
         let local_stealer_raw = LOCAL_JOB_QUEUE.with(|q| unsafe {
@@ -478,6 +502,8 @@ where
         self.register_stealer(local_stealer.clone());
         let sentinel = Sentinel::new(self.core.clone(), self.id);
         let backoff = Backoff::new();
+        let mut snoozing = false;
+        let mut parking = false;
         'main: loop {
             let mut fairness_check = false;
             #[cfg(feature = "ws-timed-fairness")]
@@ -522,7 +548,7 @@ where
                     Ok(msg) => match msg {
                         ControlMsg::Stealers(l) => {
                             self.update_stealers(l);
-                            backoff.reset();
+                            self.abort_sleep(&backoff, &mut snoozing, &mut parking);
                         }
                         ControlMsg::Stop(latch) => {
                             latch.decrement().expect("stop latch decrements");
@@ -548,7 +574,7 @@ where
             if let deque::Steal::Success(msg) = glob_res {
                 let Job(f) = msg;
                 f.call_box();
-                backoff.reset();
+                self.abort_sleep(&backoff, &mut snoozing, &mut parking);
                 continue 'main;
             }
             // only go on if there was no work left on the local queue
@@ -562,17 +588,33 @@ where
                 if let deque::Steal::Success(msg) = stealer.steal() {
                     let Job(f) = msg;
                     f.call_box();
-                    backoff.reset();
+                    self.abort_sleep(&backoff, &mut snoozing, &mut parking);
                     continue 'main; // only steal once before checking locally again
                 }
             }
-            if backoff.is_completed() {
+            snoozing = true;
+            if parking {
                 #[cfg(feature = "ws-no-park")]
-                backoff.snooze();
+                unreachable!("parking should never be true in ws-no-park!");
                 #[cfg(not(feature = "ws-no-park"))]
-                self.parker.park(*self.id());
+                match self.parker.park(*self.id()) {
+                    ParkResult::Retry => (), // just start over
+                    ParkResult::Abort | ParkResult::Woken => {
+                        self.stop_sleep(&backoff, &mut snoozing, &mut parking);
+                    }
+                }
             } else {
-                backoff.snooze();
+                if backoff.is_completed() {
+                    #[cfg(feature = "ws-no-park")]
+                    backoff.snooze();
+                    #[cfg(not(feature = "ws-no-park"))]
+                    {
+                        self.parker.prepare_park(*self.id());
+                        parking = true;
+                    }
+                } else {
+                    backoff.snooze();
+                }
             }
             // aaaaand starting over with 'local
         }

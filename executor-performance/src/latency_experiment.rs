@@ -147,6 +147,7 @@ impl<'a, E: Executor + 'static> Experiment<'a, E> {
         stats
     }
 
+    #[inline(always)]
     fn execute_run(&mut self) {
         for _ in 0..self.settings.in_parallelism() {
             let thread_exec = self.exec.clone();

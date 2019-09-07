@@ -1,6 +1,6 @@
-const MIN_RUNS: usize = 30;
-const MAX_RUNS: usize = 1000;
-const RSE_TARGET: f64 = 0.1; // 10% RSE
+const MIN_RUNS: usize = 100;
+const MAX_RUNS: usize = 10000;
+const RSE_TARGET: f64 = 0.01; // 1% RSE
 
 pub trait Statistics {
     fn sample_size(&self) -> f64;
@@ -24,6 +24,9 @@ pub trait Statistics {
         let sem = self.standard_error_mean();
         let mean = self.sample_mean();
         sem / mean
+    }
+    fn relative_error_mean_percent(&self) -> f64 {
+        self.relative_error_mean() * 100.0
     }
     fn absolute_bound(&self) -> f64 {
         let mean = self.sample_mean();
@@ -76,8 +79,8 @@ impl Stats {
     }
 
     pub fn is_done(&self) -> bool {
-        if self.data().len() > MIN_RUNS {
-            if self.data().len() >= MAX_RUNS {
+        if self.data().len() >= MIN_RUNS {
+            if self.data().len() > MAX_RUNS {
                 true
             } else {
                 self.relative_error_mean() <= RSE_TARGET

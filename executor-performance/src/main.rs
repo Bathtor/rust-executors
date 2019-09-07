@@ -342,7 +342,7 @@ fn run_latency_experiment<'a, E: Executor + 'static>(
         exp.label(),
         stats.sample_mean() * NS_TO_MS,
         stats.absolute_bound() * NS_TO_MS,
-        stats.relative_error_mean(),
+        stats.relative_error_mean_percent(),
         total_messages,
         stats.data().len(),
     );
