@@ -43,6 +43,11 @@ pub trait Parker: Send + Clone {
     /// Maximum number of threads supported by this parker implementation.
     fn max_threads(&self) -> Option<usize>;
 
+    /// Set thread state to `Awake`, no matter what the current state is.
+    ///
+    /// This is mostly meant for cleanup after a thread panic, where the state is unkown.
+    fn init(&self, thread_id: usize) -> ();
+
     /// Prepare to go to sleep.
     /// You *must* call this before doing one last check on the resource being managed.
     /// If the resource is available afterwards, you *must* call [`abort_park`].
@@ -90,6 +95,11 @@ impl Parker for DynParker {
     #[inline(always)]
     fn max_threads(&self) -> Option<usize> {
         self.inner.max_threads()
+    }
+
+    #[inline(always)]
+    fn init(&self, thread_id: usize) -> () {
+        self.inner.init(thread_id);
     }
 
     #[inline(always)]
@@ -170,6 +180,11 @@ where
     }
 
     #[inline(always)]
+    fn init(&self, thread_id: usize) -> () {
+        self.inner.init(thread_id);
+    }
+
+    #[inline(always)]
     fn prepare_park(&self, thread_id: usize) -> () {
         self.inner.prepare_park(thread_id);
     }
@@ -202,6 +217,9 @@ where
 pub trait ThreadData: std::fmt::Debug {
     /// Maximum number of threads supported by this parker implementation.
     fn max_threads(&self) -> Option<usize>;
+
+    /// Initialise thread at `thread_id`.
+    fn init(&self, thread_id: usize) -> ();
 
     /// Prepare to go to sleep.
     fn prepare_park(&self, thread_id: usize) -> ();
@@ -249,6 +267,15 @@ impl SmallThreadData {
 impl ThreadData for SmallThreadData {
     fn max_threads(&self) -> Option<usize> {
         Some(SmallThreadData::MAX_THREADS)
+    }
+
+    fn init(&self, thread_id: usize) -> () {
+        assert!(thread_id < 32);
+        if let Ok(mut guard) = self.sleeping.lock() {
+            guard[thread_id] = ParkState::Awake;
+        } else {
+            panic!("Mutex is poisoned!");
+        }
     }
 
     fn prepare_park(&self, thread_id: usize) -> () {
@@ -385,6 +412,15 @@ impl fmt::Debug for LargeThreadData {
 impl ThreadData for LargeThreadData {
     fn max_threads(&self) -> Option<usize> {
         Some(LargeThreadData::MAX_THREADS)
+    }
+
+    fn init(&self, thread_id: usize) -> () {
+        assert!(thread_id < 64);
+        if let Ok(mut guard) = self.sleeping.lock() {
+            guard[thread_id] = ParkState::Awake;
+        } else {
+            panic!("Mutex is poisoned!");
+        }
     }
 
     fn prepare_park(&self, thread_id: usize) -> () {
@@ -525,6 +561,15 @@ impl DynamicThreadData {
 impl ThreadData for DynamicThreadData {
     fn max_threads(&self) -> Option<usize> {
         None
+    }
+
+    fn init(&self, thread_id: usize) -> () {
+        if let Ok(mut guard) = self.data.lock() {
+            // Doesn't matter if it was there or not
+            let _ = guard.sleeping.remove(&thread_id);
+        } else {
+            panic!("Mutex is poisoned!");
+        }
     }
 
     fn prepare_park(&self, _thread_id: usize) -> () {

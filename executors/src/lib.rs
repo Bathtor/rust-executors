@@ -5,7 +5,7 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![doc(html_root_url = "https://docs.rs/executors/0.5.1")]
+#![doc(html_root_url = "https://docs.rs/executors/0.5.2")]
 #![allow(unused_parens)]
 
 //! This crate provides a number of task executors all implementing the
@@ -34,6 +34,8 @@ pub use crate::common::Executor;
 
 //use bichannel::*;
 use synchronoise::CountdownEvent;
+
+// TODO add default implementation for abstract executor impl with associated type executable
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -71,12 +73,35 @@ pub(crate) mod tests {
             .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
     }
 
+    pub fn test_sleepy<E>(pool: &E, label: &str)
+    where
+        E: Executor + 'static,
+    {
+        info!("Running sleepy test for {}", label);
+        let latch = Arc::new(CountdownEvent::new(2 * N_WIDTH));
+        for _ in 0..N_WIDTH {
+            let latch2 = latch.clone();
+            pool.execute(move || {
+                latch2.decrement().expect("Latch didn't decrement!");
+            });
+        }
+        std::thread::sleep(Duration::from_secs(1));
+        for _ in 0..N_WIDTH {
+            let latch2 = latch.clone();
+            pool.execute(move || {
+                latch2.decrement().expect("Latch didn't decrement!");
+            });
+        }
+        let res = latch.wait_timeout(Duration::from_secs(5));
+        assert_eq!(res, 0);
+    }
+
     fn do_step<E>(latch: Arc<CountdownEvent>, pool: E, depth: usize)
     where
         E: Executor + 'static,
     {
         let new_depth = depth - 1;
-        ignore(latch.decrement());
+        latch.decrement().expect("Latch didn't decrement!");
         if (new_depth > 0) {
             let pool2 = pool.clone();
             pool.execute(move || do_step(latch, pool2, new_depth))

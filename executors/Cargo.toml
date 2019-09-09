@@ -3,7 +3,7 @@ name = "executors"
 # NB: When modifying, also modify:
 #   1. html_root_url in lib.rs
 #   2. number in readme (for breaking changes)
-version = "0.5.1"
+version = "0.5.2"
 authors = ["Lars Kroll <lkroll@kth.se>"]
 edition = "2018"
 description = "A collection of high-performance task executors."

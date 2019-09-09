@@ -3,6 +3,10 @@ rust:
   - nightly
   - beta
   - stable
+script:
+  - cargo test
+  - cd executors
+  - ./test-features.sh
 
 matrix:
   allow_failures:

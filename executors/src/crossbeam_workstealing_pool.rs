@@ -211,7 +211,7 @@ where
         {
             let mut guard = pool.core.lock().unwrap();
             for _ in 0..threads {
-                guard.spawn_worker(pool.core.clone());
+                guard.spawn_worker(pool.core.clone(), None);
             }
         }
         pool
@@ -399,8 +399,8 @@ where
         }
     }
 
-    fn spawn_worker(&mut self, core: Arc<Mutex<ThreadPoolCore<P>>>) {
-        let id = self.new_worker_id();
+    fn spawn_worker(&mut self, core: Arc<Mutex<ThreadPoolCore<P>>>, old_id: Option<usize>) {
+        let id = old_id.unwrap_or_else(|| self.new_worker_id());
         let (tx_control, rx_control) = channel::unbounded();
         let worker = WorkerEntry {
             control: tx_control,
@@ -409,10 +409,13 @@ where
         let recv = self.global_injector.clone();
         self.workers.insert(id, worker);
         let p = self.parker.clone();
-        thread::spawn(move || {
-            let mut worker = ThreadPoolWorker::new(id, recv, rx_control, core, p);
-            worker.run()
-        });
+        thread::Builder::new()
+            .name(format!("cb-ws-pool-worker-{}", id))
+            .spawn(move || {
+                let mut worker = ThreadPoolWorker::new(id, recv, rx_control, core, p);
+                worker.run()
+            })
+            .expect("Could not create worker thread!");
     }
 }
 
@@ -424,6 +427,7 @@ where
         if !self.shutdown.load(Ordering::SeqCst) {
             warn!("Threadpools should be shut down before deallocating.");
             // the threads won't leak, as they'll get errors on their control queues next time they check
+            self.parker.unpark_all(); // must wake them all up so they don't idle forever
         }
     }
 }
@@ -463,11 +467,14 @@ where
             parker,
         }
     }
+
+    #[inline(always)]
     fn id(&self) -> &usize {
         &self.id
     }
 
-    fn abort_sleep(&self, backoff: &Backoff, parking: &mut bool, snoozing: &mut bool) -> () {
+    #[inline(always)]
+    fn abort_sleep(&self, backoff: &Backoff, snoozing: &mut bool, parking: &mut bool) -> () {
         if *parking {
             #[cfg(feature = "ws-no-park")]
             unreachable!("parking should never be true in ws-no-park!");
@@ -483,8 +490,9 @@ where
         }
     }
 
+    #[inline(always)]
     #[cfg(not(feature = "ws-no-park"))]
-    fn stop_sleep(&self, backoff: &Backoff, parking: &mut bool, snoozing: &mut bool) -> () {
+    fn stop_sleep(&self, backoff: &Backoff, snoozing: &mut bool, parking: &mut bool) -> () {
         backoff.reset();
         *snoozing = false;
         *parking = false;
@@ -500,6 +508,7 @@ where
         });
         let local_stealer = JobStealer::new(local_stealer_raw, self.id);
         self.register_stealer(local_stealer.clone());
+        self.parker.init(*self.id());
         let sentinel = Sentinel::new(self.core.clone(), self.id);
         let backoff = Backoff::new();
         let mut snoozing = false;
@@ -557,7 +566,7 @@ where
                     },
                     Err(channel::TryRecvError::Empty) => break 'ctrl,
                     Err(channel::TryRecvError::Disconnected) => {
-                        debug!("Worker {} self-terminating.", self.id());
+                        warn!("Worker {} self-terminating.", self.id());
                         sentinel.cancel();
                         panic!("Threadpool wasn't shut down properly!");
                     }
@@ -768,7 +777,8 @@ where
                     // cleanup
                     guard.drop_worker(self.id);
                     // restart
-                    guard.spawn_worker(core.clone());
+                    // make sure the new thread starts with the same worker id, so the parker doesn't run out of slots
+                    guard.spawn_worker(core.clone(), Some(self.id));
                     drop(guard);
                     for job in jobs.into_iter() {
                         gsend.push(job);
@@ -792,6 +802,14 @@ mod tests {
     fn test_debug() {
         let exec = ThreadPool::new(2, parker::small());
         crate::tests::test_debug(&exec, LABEL);
+        exec.shutdown().expect("Pool didn't shut down!");
+    }
+
+    #[test]
+    fn test_sleepy() {
+        let exec = ThreadPool::new(4, parker::small());
+        crate::tests::test_sleepy(&exec, LABEL);
+        exec.shutdown().expect("Pool didn't shut down!");
     }
 
     #[test]
@@ -938,12 +956,23 @@ mod tests {
         assert_eq!(res, 1);
     }
 
+    /// This test may/should panic on the worker threads, for example with "Threadpool wasn't shut down properly!".
+    /// Otherwise they aren't shut down properly.
     #[test]
     fn dealloc_on_handle_drop() {
         let _ = env_logger::try_init();
 
         let pool = ThreadPool::new(1, parker::small());
+        let latch = Arc::new(CountdownEvent::new(1));
+        let latch2 = latch.clone();
+        pool.execute(move || {
+            latch2.decrement().expect("Latch should have decremented!");
+        });
+        let res = latch.wait_timeout(Duration::from_secs(1));
+        assert_eq!(res, 0);
         let core = Arc::downgrade(&pool.core);
+        // sleep before drop, to ensure that even parked threads shut down
+        std::thread::sleep(std::time::Duration::from_secs(1));
         drop(pool);
         std::thread::sleep(std::time::Duration::from_secs(1));
         assert!(core.upgrade().is_none());
