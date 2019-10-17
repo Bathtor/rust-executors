@@ -573,10 +573,12 @@ impl ThreadData for DynamicThreadData {
     }
 
     fn prepare_park(&self, _thread_id: usize) -> () {
+    	//println!("Preparing to park {}", _thread_id);
         self.sleep_count.fetch_add(1usize, Ordering::SeqCst);
     }
 
     fn abort_park(&self, _thread_id: usize) -> () {
+    	//println!("Aborting park {}", _thread_id);
         self.sleep_count.fetch_sub(1usize, Ordering::SeqCst);
     }
 
@@ -590,6 +592,7 @@ impl ThreadData for DynamicThreadData {
                     unreachable!("Inconsistent sleeping map (before park)!");
                 }
             } else {
+            	println!("Aborting park due to no_sleep {}", thread_id);
                 guard.no_sleep -= 1;
                 self.sleep_count.fetch_sub(1usize, Ordering::SeqCst);
                 return ParkResult::Abort;
@@ -597,6 +600,7 @@ impl ThreadData for DynamicThreadData {
         } else {
             return ParkResult::Retry; // if the lock can't be acquired, don't park, because maybe a client is trying to wake up things anyway
         }
+        //println!("Parking {}", thread_id);
         thread::park();
         if let Ok(mut guard) = self.data.lock() {
             self.sleep_count.fetch_sub(1usize, Ordering::SeqCst);
@@ -604,6 +608,7 @@ impl ThreadData for DynamicThreadData {
                 .sleeping
                 .remove(&thread_id)
                 .expect("Inconsistent sleeping map (after park)!");
+            //println!("Woke {}", thread_id);
             return ParkResult::Woken;
         } else {
             panic!("Mutex is poisoned!");
@@ -621,8 +626,10 @@ impl ThreadData for DynamicThreadData {
                 while let Some(state) = guard.sleeping.values_mut().next() {
                     match state {
                         ParkState::Asleep(t) => {
+                        	//println!("Unparking {:?}", t);
                             t.unpark();
                             *state = ParkState::Waking;
+                            return;
                         }
                         ParkState::Waking => (), // skip
                         ParkState::Awake | ParkState::NoSleep => {
@@ -630,6 +637,7 @@ impl ThreadData for DynamicThreadData {
                         }
                     }
                 }
+                //println!("Preventing a thread from going to sleep.");
                 // no one to wake -> prevent next thread from going to sleep
                 guard.no_sleep += 1;
             } // no one is sleeping, nothing to do

@@ -30,3 +30,7 @@ local.properties
 
 # Experiment results
 **/*.csv
+
+# Sublime
+*.sublime-project
+*.sublime-workspace

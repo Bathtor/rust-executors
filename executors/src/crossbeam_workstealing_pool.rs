@@ -813,6 +813,24 @@ mod tests {
     }
 
     #[test]
+    fn test_custom_small() {
+        let exec = ThreadPool::new(4, parker::small());
+        crate::tests::test_custom(exec, LABEL);
+    }
+
+    #[test]
+    fn test_custom_large() {
+        let exec = ThreadPool::new(36, parker::large());
+        crate::tests::test_custom(exec, LABEL);
+    }
+
+    #[test]
+    fn test_custom_dyn() {
+        let exec = ThreadPool::new(72, parker::dynamic());
+        crate::tests::test_custom(exec, LABEL);
+    }
+
+    #[test]
     fn test_defaults() {
         crate::tests::test_defaults::<ThreadPool<DynParker>>(LABEL);
     }

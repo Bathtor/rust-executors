@@ -5,7 +5,7 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![doc(html_root_url = "https://docs.rs/executors/0.5.2")]
+#![doc(html_root_url = "https://docs.rs/executors/0.5.3")]
 #![allow(unused_parens)]
 
 //! This crate provides a number of task executors all implementing the
@@ -42,20 +42,22 @@ pub(crate) mod tests {
     use super::*;
     use std::sync::Arc;
     use std::time::Duration;
+    use std::fmt::Debug;
 
-    pub const N_DEPTH: usize = 32;
-    pub const N_WIDTH: usize = 8;
+    pub const N_DEPTH: usize = 4096;
+    //pub const N_DEPTH: usize = 100000; // run_now can't do this, but it's a good test for the others
+    pub const N_WIDTH: usize = 128;
 
     pub fn test_debug<E>(exec: &E, label: &str)
     where
-        E: Executor + std::fmt::Debug,
+        E: Executor + Debug,
     {
         println!("Debug output for {}: {:?}", label, exec);
     }
 
     pub fn test_defaults<E>(label: &str)
     where
-        E: Executor + std::default::Default + 'static,
+        E: Executor + Debug + std::default::Default + 'static,
     {
         let pool = E::default();
 
@@ -67,7 +69,27 @@ pub(crate) mod tests {
                 do_step(latch2, pool2, N_DEPTH);
             });
         }
-        let res = latch.wait_timeout(Duration::from_secs(5));
+        let res = latch.wait_timeout(Duration::from_secs(30));
+        assert_eq!(res, 0);
+        pool.shutdown()
+            .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
+    }
+
+    pub fn test_custom<E>(exec: E, label: &str)
+    where
+        E: Executor + Debug + 'static,
+    {
+        let pool = exec;
+
+        let latch = Arc::new(CountdownEvent::new(N_DEPTH * N_WIDTH));
+        for _ in 0..N_WIDTH {
+            let pool2 = pool.clone();
+            let latch2 = latch.clone();
+            pool.execute(move || {
+                do_step(latch2, pool2, N_DEPTH);
+            });
+        }
+        let res = latch.wait_timeout(Duration::from_secs(30));
         assert_eq!(res, 0);
         pool.shutdown()
             .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
@@ -98,7 +120,7 @@ pub(crate) mod tests {
 
     fn do_step<E>(latch: Arc<CountdownEvent>, pool: E, depth: usize)
     where
-        E: Executor + 'static,
+        E: Executor + Debug + 'static,
     {
         let new_depth = depth - 1;
         latch.decrement().expect("Latch didn't decrement!");
