@@ -626,10 +626,8 @@ impl ThreadData for DynamicThreadData {
     fn unpark_one(&self) -> () {
         if let Ok(mut guard) = self.data.lock() {
             if self.sleep_count.load(Ordering::SeqCst) > 0usize {
-                let mut count = guard.sleeping.len();
                 for state in guard.sleeping.values_mut() {
                     //println!("Hanging on to the lock (one) {}...", count);
-                    count -= 1;
                     match state {
                         ParkState::Asleep(t) => {
                         	//println!("Unparking {:?}", t);
