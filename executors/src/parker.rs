@@ -592,8 +592,8 @@ impl ThreadData for DynamicThreadData {
                     unreachable!("Inconsistent sleeping map (before park)!");
                 }
             } else {
-            	println!("Aborting park due to no_sleep {}", thread_id);
-                guard.no_sleep -= 1;
+            	//println!("Aborting park due to no_sleep {}", thread_id);
+                guard.no_sleep -= 1; // must be >0 because we hold the lock
                 self.sleep_count.fetch_sub(1usize, Ordering::SeqCst);
                 return ParkResult::Abort;
             }
@@ -602,7 +602,9 @@ impl ThreadData for DynamicThreadData {
         }
         //println!("Parking {}", thread_id);
         thread::park();
+        //println!("Not parking {} anymore, but waiting for lock.", thread_id);
         if let Ok(mut guard) = self.data.lock() {
+            //println!("Got lock.");
             self.sleep_count.fetch_sub(1usize, Ordering::SeqCst);
             guard
                 .sleeping
@@ -611,6 +613,7 @@ impl ThreadData for DynamicThreadData {
             //println!("Woke {}", thread_id);
             return ParkResult::Woken;
         } else {
+            //eprintln!("Fuck, I'll panic!");
             panic!("Mutex is poisoned!");
         }
     }
@@ -623,7 +626,10 @@ impl ThreadData for DynamicThreadData {
     fn unpark_one(&self) -> () {
         if let Ok(mut guard) = self.data.lock() {
             if self.sleep_count.load(Ordering::SeqCst) > 0usize {
-                while let Some(state) = guard.sleeping.values_mut().next() {
+                let mut count = guard.sleeping.len();
+                for state in guard.sleeping.values_mut() {
+                    //println!("Hanging on to the lock (one) {}...", count);
+                    count -= 1;
                     match state {
                         ParkState::Asleep(t) => {
                         	//println!("Unparking {:?}", t);
@@ -639,7 +645,7 @@ impl ThreadData for DynamicThreadData {
                 }
                 //println!("Preventing a thread from going to sleep.");
                 // no one to wake -> prevent next thread from going to sleep
-                guard.no_sleep += 1;
+                guard.no_sleep = guard.no_sleep.saturating_add(1); // don't overflow this during shutdown
             } // no one is sleeping, nothing to do
         } else {
             panic!("Mutex is poisoned!");
@@ -650,6 +656,7 @@ impl ThreadData for DynamicThreadData {
         if let Ok(mut guard) = self.data.lock() {
             if self.sleep_count.load(Ordering::SeqCst) > 0usize {
                 for state in guard.sleeping.values_mut() {
+                    //println!("Hanging on to the lock (all)...");
                     match state {
                         ParkState::Asleep(t) => {
                             t.unpark();
