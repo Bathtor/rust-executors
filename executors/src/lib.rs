@@ -7,6 +7,7 @@
 // except according to those terms.
 #![doc(html_root_url = "https://docs.rs/executors/0.5.3")]
 #![allow(unused_parens)]
+#![allow(clippy::unused_unit)]
 
 //! This crate provides a number of task executors all implementing the
 //! [`Executor`](common/trait.Executor.html) trait.

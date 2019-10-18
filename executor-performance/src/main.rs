@@ -7,6 +7,7 @@
 // except according to those terms.
 #![cfg_attr(feature = "nightly", feature(test))]
 #![allow(unused_parens)]
+#![allow(clippy::style)] // not important in the testing app
 extern crate executors;
 extern crate synchronoise;
 extern crate time;
@@ -252,8 +253,8 @@ fn run_throughput_experiments(
     }
 }
 
-fn run_throughput_experiment<'a, E: Executor + 'static>(
-    mut exp: crate::experiment::Experiment<'a, E>,
+fn run_throughput_experiment<E: Executor + 'static>(
+    mut exp: crate::experiment::Experiment<'_, E>,
     total_messages: f64,
 ) -> f64 {
     exp.prepare();
@@ -328,8 +329,8 @@ fn run_latency_experiments(
     }
 }
 
-fn run_latency_experiment<'a, E: Executor + 'static>(
-    mut exp: crate::latency_experiment::Experiment<'a, E>,
+fn run_latency_experiment<E: Executor + 'static>(
+    mut exp: crate::latency_experiment::Experiment<'_, E>,
     total_messages: u64,
 ) -> Stats {
     exp.prepare();
