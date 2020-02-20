@@ -1,5 +1,5 @@
 #!/bin/bash
-set +e
+set -e
 
 echo "%%%%%% Testing default features %%%%%%"
 cargo test
