@@ -10,5 +10,5 @@ cargo test --features ws-no-park
 echo "%%%%%% Finished testing feature ws-no-park %%%%%%"
 
 echo "%%%%%% Testing feature !ws-timed-fairness %%%%%%"
-cargo test --no-default-features --features threadpool-exec, cb-channel-exec, workstealing-exec, defaults
+cargo test --no-default-features  --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults
 echo "%%%%%% Finished testing feature !ws-timed-fairness %%%%%%"
