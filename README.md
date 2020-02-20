@@ -13,7 +13,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-executors = "0.5"
+executors = "0.6"
 ```
 
 You can use, for example, the [crossbeam_workstealing_pool](https://docs.rs/executors/latest/executors/crossbeam_workstealing_pool/index.html) to schedule a number `n_jobs` over a number `n_workers` threads, and collect the results via an `mpsc::channel`.
@@ -52,6 +52,10 @@ In general, [crossbeam_workstealing_pool](https://docs.rs/executors/latest/execu
 If you don't know what hardware your code is going to run on, use the [crossbeam_workstealing_pool](https://docs.rs/executors/latest/executors/crossbeam_workstealing_pool/index.html). It tends to perform best on all the hardware I have tested (which is pretty much Intel processors like i7 and Xeon).
 
 If you *absolutely need* low response time to bursty workloads, you can compile the crate with the `ws-no-park` feature, which prevents the workers in the [crossbeam_workstealing_pool](https://docs.rs/executors/latest/executors/crossbeam_workstealing_pool/index.html) from parking their threads, when all the task-queues are temporarily empty. This will, of course, not play well with other tasks running on the same system, although the threads are still yielded to the OS scheduler in between queue checks. See latency results below to get an idea of the performance impact of this feature.
+
+## Core Affinity
+
+You can enable support for pinning pool threads to particular CPU cores via the `"thread-pinning"` feature. It will then pin by default as many threads as there are core ids. If you are asking for more threads than that, the rest will be created unpinned. You can also assign only a subset of your core ids to a thread pool by using the `with_affinity(...)` instead of the `new(...)` function.
 
 ## Some Numbers
 

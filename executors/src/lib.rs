@@ -5,7 +5,7 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![doc(html_root_url = "https://docs.rs/executors/0.5.3")]
+#![doc(html_root_url = "https://docs.rs/executors/0.6.0")]
 #![allow(unused_parens)]
 #![allow(clippy::unused_unit)]
 
@@ -41,9 +41,9 @@ use synchronoise::CountdownEvent;
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use std::fmt::Debug;
     use std::sync::Arc;
     use std::time::Duration;
-    use std::fmt::Debug;
 
     pub const N_DEPTH: usize = 4096;
     //pub const N_DEPTH: usize = 100000; // run_now can't do this, but it's a good test for the others

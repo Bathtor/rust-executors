@@ -28,7 +28,6 @@ use executors::crossbeam_channel_pool::ThreadPool as CCExecutor;
 use executors::crossbeam_workstealing_pool::ThreadPool as CWSExecutor;
 use executors::threadpool_executor::ThreadPoolExecutor as TPExecutor;
 use executors::*;
-use std::error::Error;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::prelude::*;
@@ -108,7 +107,7 @@ fn main() {
         let path = Path::new(opts.value_of("csv-file").unwrap());
         let display = path.display();
         let file = match OpenOptions::new().append(true).create(true).open(&path) {
-            Err(why) => panic!("couldn't open {}: {}", display, why.description()),
+            Err(why) => panic!("couldn't open {}: {}", display, why),
             Ok(file) => file,
         };
         println!("Results will be added to {}", display);

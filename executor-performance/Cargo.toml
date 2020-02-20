@@ -1,6 +1,6 @@
 [package]
 name = "executor-performance"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Lars Kroll <lkroll@kth.se>"]
 edition = "2018"
 
@@ -10,8 +10,9 @@ time = "0.1"
 
 [dependencies.rustc-test]
 version = "0.3"
-#features = ["asm_black_box"] # uncomment if you want to use --pre or --post
+# features = ["asm_black_box"] # uncomment if you want to use --pre or --post
 # otherwise the compiler will just optimise out the useless work they do
+# doesn't work on travis (stable, beta), though
 
 [dependencies.clap]
 version = "2"
@@ -20,6 +21,6 @@ features = ["color"]
 [dependencies.executors]
 path = "../executors/"
 default-features = true # to use job counting instead of timed global check set this to false and uncomment next line
-# features = ["threadpool-exec", "cb-channel-exec", "workstealing-exec"]
+# features = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "thread-pinning"]
 # or to use timed and no parking uncomment next line
-# features = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-no-park", "ws-timed-fairness"]
+# features = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-no-park", "ws-timed-fairness", "thread-pinning"]

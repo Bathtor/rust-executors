@@ -69,6 +69,12 @@ impl ThreadPool {
     ///
     /// This function will panic if `threads` is 0.
     ///
+    /// # Core Affinity
+    ///
+    /// If compiled with `thread-pinning` it will assign a worker to each cores,
+    /// until it runs out of cores or workers. If there are more workers than cores,
+    /// the extra workers will be "floating", i.e. not pinned.
+    ///
     /// # Examples
     ///
     /// Create a new thread pool capable of executing four jobs concurrently:
@@ -95,7 +101,59 @@ impl ThreadPool {
             threads,
             shutdown,
         };
-        for _ in 0..threads {
+        #[cfg(not(feature = "thread-pinning"))]
+        {
+            for _ in 0..threads {
+                spawn_worker(pool.core.clone());
+            }
+        }
+        #[cfg(feature = "thread-pinning")]
+        {
+            let cores = core_affinity::get_core_ids().expect("core ids");
+            let num_pinned = cores.len().min(threads);
+            for i in 0..num_pinned {
+                spawn_worker_pinned(pool.core.clone(), cores[i]);
+            }
+            if num_pinned < threads {
+                let num_unpinned = threads - num_pinned;
+                for _ in 0..num_unpinned {
+                    spawn_worker(pool.core.clone());
+                }
+            }
+        }
+        pool
+    }
+
+    /// Creates a new thread pool capable of executing `threads` number of jobs concurrently with a particular core affinity.
+    ///
+    /// For each core id in the `core` slice, it will generate a single thread pinned to that id.
+    /// Additionally, it will create `floating` number of unpinned threads.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `cores.len() + floating` is 0.
+    #[cfg(feature = "thread-pinning")]
+    pub fn with_affinity(cores: &[core_affinity::CoreId], floating: usize) -> ThreadPool {
+        let total_threads = cores.len() + floating;
+        assert!(total_threads > 0);
+        let (tx, rx) = channel::unbounded();
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let pool = ThreadPool {
+            core: Arc::new(Mutex::new(ThreadPoolCore {
+                sender: tx.clone(),
+                receiver: rx.clone(),
+                shutdown: shutdown.clone(),
+                threads: total_threads,
+                ids: 0,
+            })),
+            sender: tx.clone(),
+            threads: total_threads,
+            shutdown,
+        };
+        cores.iter().for_each(|core_id| {
+            spawn_worker_pinned(pool.core.clone(), *core_id);
+        });
+        for _ in 0..floating {
             spawn_worker(pool.core.clone());
         }
         pool
@@ -181,6 +239,19 @@ fn spawn_worker(core: Arc<Mutex<ThreadPoolCore>>) {
     };
     let mut worker = ThreadPoolWorker::new(id, core.clone());
     thread::spawn(move || worker.run());
+}
+
+#[cfg(feature = "thread-pinning")]
+fn spawn_worker_pinned(core: Arc<Mutex<ThreadPoolCore>>, core_id: core_affinity::CoreId) {
+    let id = {
+        let mut guard = core.lock().unwrap();
+        guard.new_worker_id()
+    };
+    let mut worker = ThreadPoolWorker::new(id, core.clone());
+    thread::spawn(move || {
+        core_affinity::set_for_current(core_id);
+        worker.run()
+    });
 }
 
 #[derive(Debug)]
@@ -340,6 +411,16 @@ mod tests {
     #[test]
     fn test_defaults() {
         crate::tests::test_defaults::<ThreadPool>(LABEL);
+    }
+
+    #[cfg(feature = "thread-pinning")]
+    #[test]
+    fn test_custom_affinity() {
+        let cores = core_affinity::get_core_ids().expect("core ids");
+        // travis doesn't have enough cores for this
+        //let exec = ThreadPool::with_affinity(&cores[0..4], 4);
+        let exec = ThreadPool::with_affinity(&cores[0..1], 1);
+        crate::tests::test_custom(exec, LABEL);
     }
 
     #[test]

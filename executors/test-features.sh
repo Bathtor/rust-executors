@@ -1,5 +1,5 @@
 #!/bin/bash
-set +e
+set -e
 
 echo "%%%%%% Testing default features %%%%%%"
 cargo test
@@ -10,5 +10,9 @@ cargo test --features ws-no-park
 echo "%%%%%% Finished testing feature ws-no-park %%%%%%"
 
 echo "%%%%%% Testing feature !ws-timed-fairness %%%%%%"
-cargo test --no-default-features --features threadpool-exec, cb-channel-exec, workstealing-exec, defaults
+cargo test --no-default-features  --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning
 echo "%%%%%% Finished testing feature !ws-timed-fairness %%%%%%"
+
+echo "%%%%%% Testing feature thread-pinning %%%%%%"
+cargo test --features thread-pinning
+echo "%%%%%% Finished testing feature thread-pinning %%%%%%"
