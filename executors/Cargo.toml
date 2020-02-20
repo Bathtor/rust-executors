@@ -3,7 +3,7 @@ name = "executors"
 # NB: When modifying, also modify:
 #   1. html_root_url in lib.rs
 #   2. number in readme (for breaking changes)
-version = "0.5.3"
+version = "0.6.0"
 authors = ["Lars Kroll <lkroll@kth.se>"]
 edition = "2018"
 description = "A collection of high-performance task executors."
@@ -35,16 +35,16 @@ ws-no-park = []
 log 				= "0.4"
 synchronoise 		= "1.0"
 arr_macro 			= "0.1.2"
-crossbeam-channel 	= {version = "0.3", optional = true}
+crossbeam-channel 	= {version = "0.4", optional = true}
 threadpool 			= {version = "1.7", optional = true}
-crossbeam-utils 	= {version = "0.6", optional = true}
+crossbeam-utils 	= {version = "0.7", optional = true}
 crossbeam-deque 	= {version = "0.7", optional = true}
-time 				= {version = "0.1", optional = true}
+time 				= {version = "0.2", optional = true}
 rand 				= {version = "0.7", optional = true}
-num_cpus 			= {version = "1.10", optional = true}
+num_cpus 			= {version = "1.12", optional = true}
 
 [dev-dependencies]
-env_logger 			= "0.6"
+env_logger 			= "0.7"
 version-sync 		= "0.8"
 
 
