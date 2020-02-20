@@ -82,9 +82,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 use std::time::Duration;
-use std::vec::Vec;
 #[cfg(feature = "ws-timed-fairness")]
-use time;
+use std::time::Instant;
+// use time;
+use std::vec::Vec;
 
 /// Creates a thread pool with support for up to 32 threads.
 ///
@@ -147,10 +148,10 @@ pub fn pool_with_auto_parker(threads: usize) -> ThreadPool<DynParker> {
 }
 
 #[cfg(feature = "ws-timed-fairness")]
-const CHECK_GLOBAL_INTERVAL_NS: u64 = timeconstants::NS_PER_MS;
+const CHECK_GLOBAL_INTERVAL_NS: u32 = timeconstants::NS_PER_MS;
 #[cfg(not(feature = "ws-timed-fairness"))]
 const CHECK_GLOBAL_MAX_MSGS: u64 = 100;
-const MAX_WAIT_SHUTDOWN_MS: u64 = 5 * timeconstants::MS_PER_S;
+const MAX_WAIT_SHUTDOWN_MS: u64 = 5 * (timeconstants::MS_PER_S as u64);
 
 // UnsafeCell has 10x the performance of RefCell
 // and the scoping guarantees that the borrows are exclusive
@@ -516,7 +517,7 @@ where
         'main: loop {
             let mut fairness_check = false;
             #[cfg(feature = "ws-timed-fairness")]
-            let next_global_check = time::precise_time_ns() + CHECK_GLOBAL_INTERVAL_NS;
+            let next_global_check = Instant::now() + Duration::new(0, CHECK_GLOBAL_INTERVAL_NS);
             // Try the local queue usually
             LOCAL_JOB_QUEUE.with(|q| unsafe {
                 if let Some(ref local_queue) = *q.get() {
@@ -541,7 +542,7 @@ where
                         }
                         #[cfg(feature = "ws-timed-fairness")]
                         {
-                            if (time::precise_time_ns() > next_global_check) {
+                            if (Instant::now() > next_global_check) {
                                 fairness_check = true;
                                 break 'local;
                             }

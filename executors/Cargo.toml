@@ -24,7 +24,7 @@ workstealing-exec = ["crossbeam-channel", "crossbeam-deque", "rand", "crossbeam-
 defaults = ["num_cpus"]
 
 # In the workstealing executor, check the global queues every 1ms
-ws-timed-fairness = ["time"]
+ws-timed-fairness = [] #["time"]
 # Otherwise check the global queues every 100 jobs
 
 # In the workstealing executor, never park worker threads
@@ -39,7 +39,7 @@ crossbeam-channel 	= {version = "0.4", optional = true}
 threadpool 			= {version = "1.7", optional = true}
 crossbeam-utils 	= {version = "0.7", optional = true}
 crossbeam-deque 	= {version = "0.7", optional = true}
-time 				= {version = "0.2", optional = true}
+#time 				= {version = "0.2", optional = true, default-featurs = false, features = ["std", ""]}
 rand 				= {version = "0.7", optional = true}
 num_cpus 			= {version = "1.12", optional = true}
 
