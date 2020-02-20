@@ -13,6 +13,6 @@ echo "%%%%%% Testing feature !ws-timed-fairness %%%%%%"
 cargo test --no-default-features  --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning
 echo "%%%%%% Finished testing feature !ws-timed-fairness %%%%%%"
 
-echo "%%%%%% Testing feature !thread-pinning %%%%%%"
-cargo test --no-default-features  --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,ws-timed-fairness
-echo "%%%%%% Finished testing feature !thread-pinning %%%%%%"
+echo "%%%%%% Testing feature thread-pinning %%%%%%"
+cargo test --features thread-pinning
+echo "%%%%%% Finished testing feature thread-pinning %%%%%%"

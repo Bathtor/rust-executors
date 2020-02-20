@@ -53,6 +53,10 @@ If you don't know what hardware your code is going to run on, use the [crossbeam
 
 If you *absolutely need* low response time to bursty workloads, you can compile the crate with the `ws-no-park` feature, which prevents the workers in the [crossbeam_workstealing_pool](https://docs.rs/executors/latest/executors/crossbeam_workstealing_pool/index.html) from parking their threads, when all the task-queues are temporarily empty. This will, of course, not play well with other tasks running on the same system, although the threads are still yielded to the OS scheduler in between queue checks. See latency results below to get an idea of the performance impact of this feature.
 
+## Core Affinity
+
+You can enable support for pinning pool threads to particular CPU cores via the `"thread-pinning"` feature. It will then pin by default as many threads as there are core ids. If you are asking for more threads than that, the rest will be created unpinned. You can also assign only a subset of your core ids to a thread pool by using the `with_affinity(...)` instead of the `new(...)` function.
+
 ## Some Numbers
 
 The following are some example result from my desktop machine (Intel i7-4770 @ 3.40Ghz Quad-Core with HT (8 logical cores) with 16GB of RAM).

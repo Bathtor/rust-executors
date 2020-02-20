@@ -16,7 +16,7 @@ categories = ["concurrency", "asynchronous"]
 license = "MIT"
 
 [features]
-default = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-timed-fairness", "defaults", "thread-pinning"]
+default = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-timed-fairness", "defaults"]
 
 threadpool-exec = ["threadpool"]
 cb-channel-exec = ["crossbeam-channel"]
