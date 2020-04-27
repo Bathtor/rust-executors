@@ -53,9 +53,9 @@ pub trait Executor: Clone + Send {
     /// let executor2 = executor.clone();
     /// executor.execute(|| println!("Hello!"));
     /// executor.execute(move || {
-    /// 		println!("Shutting down");
-    ///		executor2.shutdown_async();
-    ///	});
+    ///     println!("Shutting down");
+    ///     executor2.shutdown_async();
+    /// });
     /// std::thread::sleep(std::time::Duration::from_secs(1)); // or wait with a barrier
     /// executor.execute(|| println!("doesn't work!"));
     /// ```

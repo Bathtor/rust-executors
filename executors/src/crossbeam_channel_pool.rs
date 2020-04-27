@@ -92,12 +92,12 @@ impl ThreadPool {
         let pool = ThreadPool {
             core: Arc::new(Mutex::new(ThreadPoolCore {
                 sender: tx.clone(),
-                receiver: rx.clone(),
+                receiver: rx,
                 shutdown: shutdown.clone(),
                 threads,
                 ids: 0,
             })),
-            sender: tx.clone(),
+            sender: tx,
             threads,
             shutdown,
         };
@@ -220,11 +220,10 @@ impl Executor for ThreadPool {
                 debug!("All threads shut down");
                 Result::Ok(())
             } else {
-                let msg = format!(
+                Result::Err(format!(
                     "Pool failed to shut down in time. {:?} threads remaining.",
                     remaining
-                );
-                Result::Err(String::from(msg))
+                ))
             }
         } else {
             Result::Err(String::from("Pool is already shutting down!"))
@@ -237,7 +236,7 @@ fn spawn_worker(core: Arc<Mutex<ThreadPoolCore>>) {
         let mut guard = core.lock().unwrap();
         guard.new_worker_id()
     };
-    let mut worker = ThreadPoolWorker::new(id, core.clone());
+    let mut worker = ThreadPoolWorker::new(id, core);
     thread::spawn(move || worker.run());
 }
 
@@ -379,7 +378,7 @@ impl Drop for Sentinel {
         if self.active {
             warn!("Active worker {} died! Restarting...", self.id);
             match self.core.upgrade() {
-                Some(core) => spawn_worker(core.clone()),
+                Some(core) => spawn_worker(core),
                 None => warn!("Could not restart worker, as pool has been deallocated!"),
             }
         }

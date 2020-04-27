@@ -70,7 +70,7 @@ use crossbeam_utils::Backoff;
 //use std::sync::mpsc;
 use crate::parker;
 use crate::parker::{DynParker, ParkResult, Parker};
-use num_cpus;
+//use num_cpus;
 use rand::prelude::*;
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
@@ -134,16 +134,13 @@ pub fn dyn_pool(threads: usize) -> ThreadPool<parker::StaticParker<parker::Dynam
 pub fn pool_with_auto_parker(threads: usize) -> ThreadPool<DynParker> {
     if threads <= parker::SmallThreadData::MAX_THREADS {
         let p = parker::small().dynamic().unwrap();
-        let pool = ThreadPool::new(threads, p);
-        pool
+        ThreadPool::new(threads, p)
     } else if threads <= parker::LargeThreadData::MAX_THREADS {
         let p = parker::large().dynamic().unwrap();
-        let pool = ThreadPool::new(threads, p);
-        pool
+        ThreadPool::new(threads, p)
     } else {
         let p = parker::dynamic().dynamic().unwrap();
-        let pool = ThreadPool::new(threads, p);
-        pool
+        ThreadPool::new(threads, p)
     }
 }
 
@@ -210,7 +207,7 @@ where
         let core = ThreadPoolCore::new(injector.clone(), shutdown.clone(), threads, parker.clone());
         let pool = ThreadPool {
             core: Arc::new(Mutex::new(core)),
-            global_sender: injector.clone(),
+            global_sender: injector,
             threads,
             shutdown,
             parker,
@@ -359,11 +356,10 @@ where
                 debug!("All threads shut down");
                 Result::Ok(())
             } else {
-                let msg = format!(
+                Result::Err(format!(
                     "Pool failed to shut down in time. {:?} threads remaining.",
                     remaining
-                );
-                Result::Err(String::from(msg))
+                ))
             }
         } else {
             Result::Err(String::from("Pool is already shutting down!"))
@@ -707,18 +703,11 @@ where
                         self.stop_sleep(&backoff, &mut snoozing, &mut parking);
                     }
                 }
+            } else if backoff.is_completed() && cfg!(not(feature = "ws-no-park")) {
+                self.parker.prepare_park(*self.id());
+                parking = true;
             } else {
-                if backoff.is_completed() {
-                    #[cfg(feature = "ws-no-park")]
-                    backoff.snooze();
-                    #[cfg(not(feature = "ws-no-park"))]
-                    {
-                        self.parker.prepare_park(*self.id());
-                        parking = true;
-                    }
-                } else {
-                    backoff.snooze();
-                }
+                backoff.snooze();
             }
             // aaaaand starting over with 'local
         }

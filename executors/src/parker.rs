@@ -154,7 +154,7 @@ where
     /// Only works, if no handles to this parker were already shared and returns `Err` otherwise.
     pub fn dynamic(self) -> Result<DynParker, Self> {
         Arc::try_unwrap(self.inner)
-            .map(|data| DynParker::new(data))
+            .map(DynParker::new)
             .map_err(|arc_data| StaticParker { inner: arc_data })
     }
 }
@@ -314,10 +314,10 @@ impl ThreadData for SmallThreadData {
                 ParkState::Awake => unreachable!("Threads must be asleep to wake from park!"),
                 ParkState::Waking | ParkState::Asleep(_) => {
                     guard[thread_id] = ParkState::Awake;
-                    return ParkResult::Woken;
+                    ParkResult::Woken
                 }
                 ParkState::NoSleep => {
-                    unreachable!("Threads must be awake to be prevented from sleeping!")
+                    unreachable!("Threads must be awake to be prevented from sleeping!");
                 }
             }
         } else {
@@ -459,10 +459,10 @@ impl ThreadData for LargeThreadData {
                 ParkState::Awake => unreachable!("Threads must be asleep to wake from park!"),
                 ParkState::Waking | ParkState::Asleep(_) => {
                     guard[thread_id] = ParkState::Awake;
-                    return ParkResult::Woken;
+                    ParkResult::Woken
                 }
                 ParkState::NoSleep => {
-                    unreachable!("Threads must be awake to be prevented from sleeping!")
+                    unreachable!("Threads must be awake to be prevented from sleeping!");
                 }
             }
         } else {
@@ -611,7 +611,7 @@ impl ThreadData for DynamicThreadData {
                 .remove(&thread_id)
                 .expect("Inconsistent sleeping map (after park)!");
             //println!("Woke {}", thread_id);
-            return ParkResult::Woken;
+            ParkResult::Woken
         } else {
             //eprintln!("Fuck, I'll panic!");
             panic!("Mutex is poisoned!");
@@ -637,7 +637,7 @@ impl ThreadData for DynamicThreadData {
                         }
                         ParkState::Waking => (), // skip
                         ParkState::Awake | ParkState::NoSleep => {
-                            unreachable!("These should not be in the map at all!")
+                            unreachable!("These should not be in the map at all!");
                         }
                     }
                 }
@@ -662,7 +662,7 @@ impl ThreadData for DynamicThreadData {
                         }
                         ParkState::Waking => (), // skip
                         ParkState::Awake | ParkState::NoSleep => {
-                            unreachable!("These should not be in the map at all!")
+                            unreachable!("These should not be in the map at all!");
                         }
                     }
                 }
