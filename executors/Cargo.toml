@@ -16,7 +16,7 @@ categories = ["concurrency", "asynchronous"]
 license = "MIT"
 
 [features]
-default = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-timed-fairness", "defaults"]
+default = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-timed-fairness", "defaults", "futures-support"]
 
 threadpool-exec = ["threadpool"]
 cb-channel-exec = ["crossbeam-channel"]
@@ -32,6 +32,8 @@ ws-no-park = []
 
 thread-pinning = ["core_affinity"]
 
+futures-support = ["futures"]
+
 
 [dependencies]
 log 				= "0.4"
@@ -41,10 +43,10 @@ crossbeam-channel 	= {version = "0.4", optional = true}
 threadpool 			= {version = "1.7", optional = true}
 crossbeam-utils 	= {version = "0.7", optional = true}
 crossbeam-deque 	= {version = "0.7", optional = true}
-#time 				= {version = "0.2", optional = true, default-featurs = false, features = ["std", ""]}
 rand 				= {version = "0.7", optional = true}
 num_cpus 			= {version = "1.12", optional = true}
 core_affinity 		= {version = "0.5", optional = true}
+futures 			= {version = "0.3", optional = true}
 
 [dev-dependencies]
 env_logger 			= "0.7"

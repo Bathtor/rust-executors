@@ -1,4 +1,4 @@
-// Copyright 2017 Lars Kroll. See the LICENSE
+// Copyright 2017-2020 Lars Kroll. See the LICENSE
 // file at the top-level directory of this distribution.
 //
 // Licensed under the MIT license
@@ -32,6 +32,9 @@ mod timeconstants;
 
 use crate::common::ignore;
 pub use crate::common::Executor;
+
+#[cfg(feature = "futures-support")]
+pub mod futures_executor;
 
 //use bichannel::*;
 use synchronoise::CountdownEvent;
