@@ -208,6 +208,11 @@ fn rt() -> impl FuturesExecutor {
     crossbeam_workstealing_pool::small_pool(4)
 }
 
-benchmark_group!(scheduler, chained_spawn, chained_spawn_no_local, chained_spawn_async);
+benchmark_group!(
+    scheduler,
+    chained_spawn,
+    chained_spawn_no_local,
+    chained_spawn_async
+);
 
 benchmark_main!(scheduler);

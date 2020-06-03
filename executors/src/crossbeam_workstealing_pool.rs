@@ -74,7 +74,6 @@ use crate::parker::{DynParker, ParkResult, Parker};
 use rand::prelude::*;
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
-use std::collections::LinkedList;
 use std::fmt::{Debug, Formatter};
 use std::iter::{FromIterator, IntoIterator};
 use std::ops::Deref;
