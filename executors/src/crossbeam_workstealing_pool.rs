@@ -75,7 +75,7 @@ use rand::prelude::*;
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
-use std::iter::{FromIterator, IntoIterator};
+//use std::iter::{FromIterator, IntoIterator};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -257,11 +257,12 @@ where
         }
         #[cfg(feature = "thread-pinning")]
         {
-            let mut guard = pool.core.inner.lock().unwrap();
+            let mut guard = pool.inner.core.lock().unwrap();
             let cores = core_affinity::get_core_ids().expect("core ids");
             let num_pinned = cores.len().min(threads);
             for i in 0..num_pinned {
-                guard.spawn_worker_pinned(pool.inner.clone(), None, cores[i]);
+                pool.inner
+                    .spawn_worker_pinned(&mut guard, pool.inner.clone(), None, cores[i]);
             }
             if num_pinned < threads {
                 let num_unpinned = threads - num_pinned;
@@ -297,7 +298,7 @@ where
         let inner = ThreadPoolInner {
             core: Mutex::new(core),
             global_sender: deque::Injector::new(),
-            threads,
+            threads: total_threads,
             shutdown: AtomicBool::new(false),
             parker,
         };
@@ -307,10 +308,12 @@ where
         {
             let mut guard = pool.inner.core.lock().unwrap();
             cores.iter().for_each(|core_id| {
-                guard.spawn_worker_pinned(pool.inner.clone(), None, *core_id);
+                pool.inner
+                    .spawn_worker_pinned(&mut guard, pool.inner.clone(), None, *core_id);
             });
             for _ in 0..floating {
-                guard.spawn_worker(pool.inner.clone(), None);
+                pool.inner
+                    .spawn_worker(&mut guard, pool.inner.clone(), None);
             }
         }
         pool
@@ -617,7 +620,7 @@ where
         let backoff = Backoff::new();
         let mut snoozing = false;
         let mut parking = false;
-        let mut stop_latch: Option<Arc<CountdownEvent>> = None;
+        let mut stop_latch: Option<Arc<CountdownEvent>>;
         'main: loop {
             //info!("Worker {} starting main loop", self.id());
             let mut fairness_check = false;
@@ -715,13 +718,15 @@ where
             if parking {
                 #[cfg(feature = "ws-no-park")]
                 unreachable!("parking should never be true in ws-no-park!");
-                //#[cfg(not(feature = "ws-no-park"))]
-                let parker = core.parker.clone();
-                drop(core);
-                match parker.park(*self.id()) {
-                    ParkResult::Retry => (), // just start over
-                    ParkResult::Abort | ParkResult::Woken => {
-                        self.stop_sleep(&backoff, &mut snoozing, &mut parking);
+                #[cfg(not(feature = "ws-no-park"))]
+                {
+                    let parker = core.parker.clone();
+                    drop(core);
+                    match parker.park(*self.id()) {
+                        ParkResult::Retry => (), // just start over
+                        ParkResult::Abort | ParkResult::Woken => {
+                            self.stop_sleep(&backoff, &mut snoozing, &mut parking);
+                        }
                     }
                 }
             } else if backoff.is_completed() && cfg!(not(feature = "ws-no-park")) {
