@@ -39,7 +39,7 @@ pub enum ParkResult {
     Woken,
 }
 
-pub trait Parker: Send + Clone {
+pub trait Parker: Sync + Send + Clone {
     /// Maximum number of threads supported by this parker implementation.
     fn max_threads(&self) -> Option<usize>;
 

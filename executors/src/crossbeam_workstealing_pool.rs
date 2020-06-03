@@ -156,16 +156,51 @@ thread_local!(
     static LOCAL_JOB_QUEUE: UnsafeCell<Option<deque::Worker<Job>>> = UnsafeCell::new(Option::None);
 );
 
+/// Try to append the job to the thread-local job queue
+///
+/// This only work if called from a thread that is part of the pool.
+/// Otherwise the job will be returned in an `Err` variant.
+pub fn execute_locally<F>(job: F) -> Result<(), F>
+where
+    F: FnOnce() + Send + 'static,
+{
+    LOCAL_JOB_QUEUE.with(|qo| unsafe {
+        match *qo.get() {
+            Some(ref q) => {
+                let msg = Job(Box::new(job));
+                q.push(msg);
+                Ok(())
+            }
+            None => Err(job),
+        }
+    })
+}
+
+/// A handle associated with the thread pool structure
 #[derive(Clone, Debug)]
 pub struct ThreadPool<P>
 where
     P: Parker + Clone + 'static,
 {
-    core: Arc<Mutex<ThreadPoolCore<P>>>,
-    global_sender: Arc<deque::Injector<Job>>,
+    inner: Arc<ThreadPoolInner<P>>,
+}
+
+#[derive(Debug)]
+struct ThreadPoolInner<P>
+where
+    P: Parker + Clone + 'static,
+{
+    core: Mutex<ThreadPoolCore>,
+    global_sender: deque::Injector<Job>,
     threads: usize,
-    shutdown: Arc<AtomicBool>,
+    shutdown: AtomicBool,
     parker: P,
+}
+
+#[derive(Debug)]
+struct ThreadPoolCore {
+    ids: usize,
+    workers: BTreeMap<usize, WorkerEntry>,
 }
 
 impl<P> ThreadPool<P>
@@ -202,35 +237,38 @@ where
         if let Some(max) = parker.max_threads() {
             assert!(threads <= max);
         }
-        let injector = Arc::new(deque::Injector::new());
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let core = ThreadPoolCore::new(injector.clone(), shutdown.clone(), threads, parker.clone());
-        let pool = ThreadPool {
-            core: Arc::new(Mutex::new(core)),
-            global_sender: injector,
+        let core = ThreadPoolCore::new();
+        let inner = ThreadPoolInner {
+            core: Mutex::new(core),
+            global_sender: deque::Injector::new(),
             threads,
-            shutdown,
+            shutdown: AtomicBool::new(false),
             parker,
+        };
+        let pool = ThreadPool {
+            inner: Arc::new(inner),
         };
         #[cfg(not(feature = "thread-pinning"))]
         {
-            let mut guard = pool.core.lock().unwrap();
+            let mut guard = pool.inner.core.lock().unwrap();
             for _ in 0..threads {
-                guard.spawn_worker(pool.core.clone(), None);
+                pool.inner
+                    .spawn_worker(&mut guard, pool.inner.clone(), None);
             }
         }
         #[cfg(feature = "thread-pinning")]
         {
-            let mut guard = pool.core.lock().unwrap();
+            let mut guard = pool.core.inner.lock().unwrap();
             let cores = core_affinity::get_core_ids().expect("core ids");
             let num_pinned = cores.len().min(threads);
             for i in 0..num_pinned {
-                guard.spawn_worker_pinned(pool.core.clone(), None, cores[i]);
+                guard.spawn_worker_pinned(pool.inner.clone(), None, cores[i]);
             }
             if num_pinned < threads {
                 let num_unpinned = threads - num_pinned;
                 for _ in 0..num_unpinned {
-                    guard.spawn_worker(pool.core.clone(), None);
+                    pool.inner
+                        .spawn_worker(&mut guard, pool.inner.clone(), None);
                 }
             }
         }
@@ -256,28 +294,24 @@ where
         if let Some(max) = parker.max_threads() {
             assert!(total_threads <= max);
         }
-        let injector = Arc::new(deque::Injector::new());
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let core = ThreadPoolCore::new(
-            injector.clone(),
-            shutdown.clone(),
-            total_threads,
-            parker.clone(),
-        );
-        let pool = ThreadPool {
-            core: Arc::new(Mutex::new(core)),
-            global_sender: injector.clone(),
-            threads: total_threads,
-            shutdown,
+        let core = ThreadPoolCore::new();
+        let inner = ThreadPoolInner {
+            core: Mutex::new(core),
+            global_sender: deque::Injector::new(),
+            threads,
+            shutdown: AtomicBool::new(false),
             parker,
         };
+        let pool = ThreadPool {
+            inner: Arc::new(inner),
+        };
         {
-            let mut guard = pool.core.lock().unwrap();
+            let mut guard = pool.inner.core.lock().unwrap();
             cores.iter().for_each(|core_id| {
-                guard.spawn_worker_pinned(pool.core.clone(), None, *core_id);
+                guard.spawn_worker_pinned(pool.inner.clone(), None, *core_id);
             });
             for _ in 0..floating {
-                guard.spawn_worker(pool.core.clone(), None);
+                guard.spawn_worker(pool.inner.clone(), None);
             }
         }
         pool
@@ -305,7 +339,7 @@ where
     where
         F: FnOnce() + Send + 'static,
     {
-        if !self.shutdown.load(Ordering::Relaxed) {
+        if !self.inner.shutdown.load(Ordering::Relaxed) {
             LOCAL_JOB_QUEUE.with(|qo| unsafe {
                 let msg = Job(Box::new(job));
                 match *qo.get() {
@@ -314,9 +348,9 @@ where
                     }
                     None => {
                         debug!("Scheduling on global pool.");
-                        self.global_sender.push(msg);
+                        self.inner.global_sender.push(msg);
                         #[cfg(not(feature = "ws-no-park"))]
-                        self.parker.unpark_one();
+                        self.inner.parker.unpark_one();
                     }
                 }
             })
@@ -335,13 +369,14 @@ where
 
     fn shutdown_borrowed(&self) -> Result<(), String> {
         if !self
+            .inner
             .shutdown
             .compare_and_swap(false, true, Ordering::SeqCst)
         {
-            let latch = Arc::new(CountdownEvent::new(self.threads));
-            debug!("Shutting down {} threads", self.threads);
+            let latch = Arc::new(CountdownEvent::new(self.inner.threads));
+            debug!("Shutting down {} threads", self.inner.threads);
             {
-                let guard = self.core.lock().unwrap();
+                let guard = self.inner.core.lock().unwrap();
                 for worker in guard.workers.values() {
                     worker
                         .control
@@ -350,7 +385,7 @@ where
                 }
             }
             #[cfg(not(feature = "ws-no-park"))]
-            self.parker.unpark_all(); // gotta wake up all threads so they can get shut down
+            self.inner.parker.unpark_all(); // gotta wake up all threads so they can get shut down
             let remaining = latch.wait_timeout(Duration::from_millis(MAX_WAIT_SHUTDOWN_MS));
             if remaining == 0 {
                 debug!("All threads shut down");
@@ -367,17 +402,76 @@ where
     }
 }
 
-//fn spawn_worker(core: Arc<Mutex<ThreadPoolCore>>) {
-//    let id = {
-//        let mut guard = core.lock().unwrap();
-//        guard.new_worker_id()
-//    };
-//    let core2 = core.clone();
-//    thread::spawn(move || {
-//        let mut worker = ThreadPoolWorker::new(id, core2);
-//        worker.run()
-//    });
-//}
+impl<P> ThreadPoolInner<P>
+where
+    P: Parker + Clone + 'static,
+{
+    fn spawn_worker(
+        &self,
+        guard: &mut std::sync::MutexGuard<'_, ThreadPoolCore>,
+        inner: Arc<Self>,
+        old_id: Option<usize>,
+    ) {
+        //let guard = self.core.lock().unwrap();
+        let id = old_id.unwrap_or_else(|| guard.new_worker_id());
+        let (tx_control, rx_control) = channel::unbounded();
+        let worker = WorkerEntry {
+            control: tx_control,
+            stealer: Option::None,
+        };
+        guard.workers.insert(id, worker);
+        //drop(guard);
+        thread::Builder::new()
+            .name(format!("cb-ws-pool-worker-{}", id))
+            .spawn(move || {
+                let mut worker = ThreadPoolWorker::new(id, rx_control, &inner);
+                drop(inner);
+                worker.run()
+            })
+            .expect("Could not create worker thread!");
+    }
+
+    #[cfg(feature = "thread-pinning")]
+    fn spawn_worker_pinned(
+        &self,
+        guard: &mut std::sync::MutexGuard<'_, ThreadPoolCore>,
+        inner: Arc<Self>,
+        old_id: Option<usize>,
+        core_id: core_affinity::CoreId,
+    ) {
+        //let guard = self.core.lock().unwrap();
+        let id = old_id.unwrap_or_else(|| guard.new_worker_id());
+        let (tx_control, rx_control) = channel::unbounded();
+        let worker = WorkerEntry {
+            control: tx_control,
+            stealer: Option::None,
+        };
+        guard.workers.insert(id, worker);
+        //drop(guard);
+        thread::Builder::new()
+            .name(format!("cb-ws-pool-worker-{}", id))
+            .spawn(move || {
+                core_affinity::set_for_current(core_id);
+                let mut worker = ThreadPoolWorker::new(id, rx_control, &inner);
+                drop(inner);
+                worker.run()
+            })
+            .expect("Could not create worker thread!");
+    }
+}
+
+impl<P> Drop for ThreadPoolInner<P>
+where
+    P: Parker + Clone + 'static,
+{
+    fn drop(&mut self) {
+        if !self.shutdown.load(Ordering::SeqCst) {
+            warn!("Threadpools should be shut down before deallocating.");
+            // the threads won't leak, as they'll get errors on their control queues next time they check
+            self.parker.unpark_all(); // must wake them all up so they don't idle forever
+        }
+    }
+}
 
 #[derive(Debug)]
 struct WorkerEntry {
@@ -385,36 +479,11 @@ struct WorkerEntry {
     stealer: Option<JobStealer>,
 }
 
-#[derive(Debug)]
-struct ThreadPoolCore<P>
-where
-    P: Parker + Clone + 'static,
-{
-    global_injector: Arc<deque::Injector<Job>>,
-    shutdown: Arc<AtomicBool>,
-    _threads: usize,
-    ids: usize,
-    workers: BTreeMap<usize, WorkerEntry>,
-    parker: P,
-}
-
-impl<P> ThreadPoolCore<P>
-where
-    P: Parker + Clone + 'static,
-{
-    fn new(
-        global_injector: Arc<deque::Injector<Job>>,
-        shutdown: Arc<AtomicBool>,
-        threads: usize,
-        parker: P,
-    ) -> ThreadPoolCore<P> {
+impl ThreadPoolCore {
+    fn new() -> Self {
         ThreadPoolCore {
-            global_injector,
-            shutdown,
-            _threads: threads,
             ids: 0,
             workers: BTreeMap::new(),
-            parker,
         }
     }
 
@@ -452,7 +521,7 @@ where
             .map(|w| w.stealer.clone().unwrap())
             .collect();
         for (wid, worker) in self.workers.iter() {
-            let l: LinkedList<JobStealer> = stealers
+            let l: Vec<JobStealer> = stealers
                 .iter()
                 .filter(|s| s.id() != *wid)
                 .cloned()
@@ -463,64 +532,6 @@ where
                 .unwrap_or_else(|e| error!("Error submitting Stealer msg: {:?}", e));
         }
     }
-
-    fn spawn_worker(&mut self, core: Arc<Mutex<ThreadPoolCore<P>>>, old_id: Option<usize>) {
-        let id = old_id.unwrap_or_else(|| self.new_worker_id());
-        let (tx_control, rx_control) = channel::unbounded();
-        let worker = WorkerEntry {
-            control: tx_control,
-            stealer: Option::None,
-        };
-        let recv = self.global_injector.clone();
-        self.workers.insert(id, worker);
-        let p = self.parker.clone();
-        thread::Builder::new()
-            .name(format!("cb-ws-pool-worker-{}", id))
-            .spawn(move || {
-                let mut worker = ThreadPoolWorker::new(id, recv, rx_control, core, p);
-                worker.run()
-            })
-            .expect("Could not create worker thread!");
-    }
-
-    #[cfg(feature = "thread-pinning")]
-    fn spawn_worker_pinned(
-        &mut self,
-        core: Arc<Mutex<ThreadPoolCore<P>>>,
-        old_id: Option<usize>,
-        core_id: core_affinity::CoreId,
-    ) {
-        let id = old_id.unwrap_or_else(|| self.new_worker_id());
-        let (tx_control, rx_control) = channel::unbounded();
-        let worker = WorkerEntry {
-            control: tx_control,
-            stealer: Option::None,
-        };
-        let recv = self.global_injector.clone();
-        self.workers.insert(id, worker);
-        let p = self.parker.clone();
-        thread::Builder::new()
-            .name(format!("cb-ws-pool-worker-{}", id))
-            .spawn(move || {
-                core_affinity::set_for_current(core_id);
-                let mut worker = ThreadPoolWorker::new(id, recv, rx_control, core, p);
-                worker.run()
-            })
-            .expect("Could not create worker thread!");
-    }
-}
-
-impl<P> Drop for ThreadPoolCore<P>
-where
-    P: Parker + Clone + 'static,
-{
-    fn drop(&mut self) {
-        if !self.shutdown.load(Ordering::SeqCst) {
-            warn!("Threadpools should be shut down before deallocating.");
-            // the threads won't leak, as they'll get errors on their control queues next time they check
-            self.parker.unpark_all(); // must wake them all up so they don't idle forever
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -529,12 +540,10 @@ where
     P: Parker + Clone + 'static,
 {
     id: usize,
-    core: Weak<Mutex<ThreadPoolCore<P>>>,
-    global_injector: Arc<deque::Injector<Job>>,
+    core: Weak<ThreadPoolInner<P>>,
     control: channel::Receiver<ControlMsg>,
     stealers: Vec<JobStealer>,
     random: ThreadRng,
-    parker: P,
 }
 
 impl<P> ThreadPoolWorker<P>
@@ -543,19 +552,15 @@ where
 {
     fn new(
         id: usize,
-        global_injector: Arc<deque::Injector<Job>>,
         control: channel::Receiver<ControlMsg>,
-        core: Arc<Mutex<ThreadPoolCore<P>>>,
-        parker: P,
+        core: &Arc<ThreadPoolInner<P>>,
     ) -> ThreadPoolWorker<P> {
         ThreadPoolWorker {
             id,
-            core: Arc::downgrade(&core),
-            global_injector,
+            core: Arc::downgrade(core),
             control,
             stealers: Vec::new(),
             random: rand::thread_rng(),
-            parker,
         }
     }
 
@@ -565,13 +570,19 @@ where
     }
 
     #[inline(always)]
-    fn abort_sleep(&self, backoff: &Backoff, snoozing: &mut bool, parking: &mut bool) -> () {
+    fn abort_sleep(
+        &self,
+        core: &Arc<ThreadPoolInner<P>>,
+        backoff: &Backoff,
+        snoozing: &mut bool,
+        parking: &mut bool,
+    ) -> () {
         if *parking {
             #[cfg(feature = "ws-no-park")]
             unreachable!("parking should never be true in ws-no-park!");
             #[cfg(not(feature = "ws-no-park"))]
             {
-                self.parker.abort_park(*self.id());
+                core.parker.abort_park(*self.id());
                 *parking = false;
             }
         }
@@ -597,14 +608,19 @@ where
             *q.get() = Some(worker);
             stealer
         });
+        let core = self.core.upgrade().expect("Core shut down already!");
+        //info!("Setting up new worker {}. strong={}, weak={}", self.id(), Arc::strong_count(&core), Arc::weak_count(&core));
         let local_stealer = JobStealer::new(local_stealer_raw, self.id);
-        self.register_stealer(local_stealer.clone());
-        self.parker.init(*self.id());
+        self.register_stealer(&core, local_stealer);
+        core.parker.init(*self.id());
+        drop(core);
         let sentinel = Sentinel::new(self.core.clone(), self.id);
         let backoff = Backoff::new();
         let mut snoozing = false;
         let mut parking = false;
+        let mut stop_latch: Option<Arc<CountdownEvent>> = None;
         'main: loop {
+            //info!("Worker {} starting main loop", self.id());
             let mut fairness_check = false;
             #[cfg(feature = "ws-timed-fairness")]
             let next_global_check = Instant::now() + Duration::new(0, CHECK_GLOBAL_INTERVAL_NS);
@@ -642,21 +658,25 @@ where
                     panic!("Queue should have been initialised!");
                 }
             });
+
+            let core = self.core.upgrade().expect("Core shut down already!");
+            //info!("Worker {} taking new core handle. strong={}, weak={}", self.id(), Arc::strong_count(&core), Arc::weak_count(&core));
             // drain the control queue
             'ctrl: loop {
                 match self.control.try_recv() {
                     Ok(msg) => match msg {
                         ControlMsg::Stealers(l) => {
                             self.update_stealers(l);
-                            self.abort_sleep(&backoff, &mut snoozing, &mut parking);
+                            self.abort_sleep(&core, &backoff, &mut snoozing, &mut parking);
                         }
                         ControlMsg::Stop(latch) => {
-                            latch.decrement().expect("stop latch decrements");
+                            stop_latch = Some(latch);
                             break 'main;
                         }
                     },
                     Err(channel::TryRecvError::Empty) => break 'ctrl,
                     Err(channel::TryRecvError::Disconnected) => {
+                        drop(core);
                         warn!("Worker {} self-terminating.", self.id());
                         sentinel.cancel();
                         panic!("Threadpool wasn't shut down properly!");
@@ -666,7 +686,7 @@ where
             // sometimes try the global queue
             let glob_res = LOCAL_JOB_QUEUE.with(|q| unsafe {
                 if let Some(ref local_queue) = *q.get() {
-                    self.global_injector.steal_batch_and_pop(local_queue)
+                    core.global_sender.steal_batch_and_pop(local_queue)
                 } else {
                     panic!("Queue should have been initialised!");
                 }
@@ -674,13 +694,13 @@ where
             if let deque::Steal::Success(msg) = glob_res {
                 let Job(f) = msg;
                 f.call_box();
-                self.abort_sleep(&backoff, &mut snoozing, &mut parking);
+                self.abort_sleep(&core, &backoff, &mut snoozing, &mut parking);
                 continue 'main;
             }
             // only go on if there was no work left on the local queue
             if fairness_check {
                 #[cfg(not(feature = "ws-no-park"))]
-                self.parker.unpark_one(); // wake up more threads if there is more work to do
+                core.parker.unpark_one(); // wake up more threads if there is more work to do
                 continue 'main;
             }
             // try to steal something!
@@ -688,7 +708,7 @@ where
                 if let deque::Steal::Success(msg) = stealer.steal() {
                     let Job(f) = msg;
                     f.call_box();
-                    self.abort_sleep(&backoff, &mut snoozing, &mut parking);
+                    self.abort_sleep(&core, &backoff, &mut snoozing, &mut parking);
                     continue 'main; // only steal once before checking locally again
                 }
             }
@@ -696,51 +716,48 @@ where
             if parking {
                 #[cfg(feature = "ws-no-park")]
                 unreachable!("parking should never be true in ws-no-park!");
-                #[cfg(not(feature = "ws-no-park"))]
-                match self.parker.park(*self.id()) {
+                //#[cfg(not(feature = "ws-no-park"))]
+                let parker = core.parker.clone();
+                drop(core);
+                match parker.park(*self.id()) {
                     ParkResult::Retry => (), // just start over
                     ParkResult::Abort | ParkResult::Woken => {
                         self.stop_sleep(&backoff, &mut snoozing, &mut parking);
                     }
                 }
             } else if backoff.is_completed() && cfg!(not(feature = "ws-no-park")) {
-                self.parker.prepare_park(*self.id());
+                core.parker.prepare_park(*self.id());
                 parking = true;
             } else {
+                drop(core);
                 backoff.snooze();
             }
             // aaaaand starting over with 'local
         }
         sentinel.cancel();
-        self.unregister_stealer(local_stealer);
+        let core = self.core.upgrade().expect("Core shut down already!");
+        self.unregister_stealer(&core);
         LOCAL_JOB_QUEUE.with(|q| unsafe {
             *q.get() = None;
         });
         debug!("Worker {} shutting down", self.id());
-    }
-
-    fn register_stealer(&mut self, stealer: JobStealer) {
-        match self.core.upgrade() {
-            Some(core) => {
-                let mut guard = core.lock().unwrap();
-                guard.add_stealer(stealer);
-            }
-            None => panic!("Core was already shut down!"),
+        drop(core);
+        if let Some(latch) = stop_latch.take() {
+            latch.decrement().expect("stop latch decrements");
         }
     }
 
-    fn unregister_stealer(&mut self, _stealer: JobStealer) {
-        match self.core.upgrade() {
-            Some(core) => {
-                let mut guard = core.lock().unwrap();
-                guard.drop_worker(self.id);
-            }
-            None => panic!("Core was already shut down!"),
-        }
+    fn register_stealer(&mut self, core: &Arc<ThreadPoolInner<P>>, stealer: JobStealer) {
+        let mut guard = core.core.lock().unwrap();
+        guard.add_stealer(stealer);
     }
 
-    fn update_stealers(&mut self, l: LinkedList<JobStealer>) {
-        let mut v = Vec::from_iter(l.into_iter());
+    fn unregister_stealer(&mut self, core: &Arc<ThreadPoolInner<P>>) {
+        let mut guard = core.core.lock().unwrap();
+        guard.drop_worker(self.id);
+    }
+
+    fn update_stealers(&mut self, mut v: Vec<JobStealer>) {
         v.shuffle(&mut self.random);
         self.stealers = v;
     }
@@ -795,7 +812,7 @@ impl Debug for JobStealer {
 struct Job(Box<dyn FnBox + Send + 'static>);
 
 enum ControlMsg {
-    Stealers(LinkedList<JobStealer>),
+    Stealers(Vec<JobStealer>),
     Stop(Arc<CountdownEvent>),
 }
 
@@ -812,7 +829,7 @@ struct Sentinel<P>
 where
     P: Parker + Clone + 'static,
 {
-    core: Weak<Mutex<ThreadPoolCore<P>>>,
+    core: Weak<ThreadPoolInner<P>>,
     id: usize,
     active: bool,
 }
@@ -821,7 +838,7 @@ impl<P> Sentinel<P>
 where
     P: Parker + Clone + 'static,
 {
-    fn new(core: Weak<Mutex<ThreadPoolCore<P>>>, id: usize) -> Sentinel<P> {
+    fn new(core: Weak<ThreadPoolInner<P>>, id: usize) -> Sentinel<P> {
         Sentinel {
             core,
             id,
@@ -856,16 +873,15 @@ where
                         }
                         jobs
                     });
-                    let mut guard = core.lock().unwrap();
-                    let gsend = guard.global_injector.clone();
+                    let mut guard = core.core.lock().unwrap();
                     // cleanup
                     guard.drop_worker(self.id);
                     // restart
                     // make sure the new thread starts with the same worker id, so the parker doesn't run out of slots
-                    guard.spawn_worker(core.clone(), Some(self.id));
+                    core.spawn_worker(&mut guard, core.clone(), Some(self.id));
                     drop(guard);
                     for job in jobs.into_iter() {
-                        gsend.push(job);
+                        core.global_sender.push(job);
                     }
                 }
                 None => warn!("Could not restart worker, as pool has been deallocated!"),
@@ -1082,11 +1098,21 @@ mod tests {
         });
         let res = latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 0);
-        let core = Arc::downgrade(&pool.core);
+        let core_weak = Arc::downgrade(&pool.inner);
         // sleep before drop, to ensure that even parked threads shut down
         std::thread::sleep(std::time::Duration::from_secs(1));
         drop(pool);
         std::thread::sleep(std::time::Duration::from_secs(1));
-        assert!(core.upgrade().is_none());
+        match core_weak.upgrade() {
+            Some(core) => {
+                println!(
+                    "Outstanding references: strong={}, weak={}",
+                    Arc::strong_count(&core),
+                    Arc::weak_count(&core)
+                );
+                panic!("Pool should have been dropped!");
+            }
+            None => (), // ok
+        }
     }
 }

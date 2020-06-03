@@ -51,6 +51,7 @@ futures 			= {version = "0.3", optional = true}
 [dev-dependencies]
 env_logger 			= "0.7"
 version-sync 		= "0.8"
+bencher 			= "0.1.5"
 
 
 [badges]
@@ -60,3 +61,8 @@ version-sync 		= "0.8"
 maintenance = { status = "actively-developed" }
 
 travis-ci = { repository = "Bathtor/rust-executors", branch = "master" }
+
+[[bench]]
+name = "scheduler"
+path = "benches/scheduler.rs"
+harness = false

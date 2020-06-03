@@ -36,7 +36,7 @@ where
     }
 }
 
-struct FunTask<E>
+pub(crate) struct FunTask<E>
 where
     E: Executor + Sync + 'static,
 {
