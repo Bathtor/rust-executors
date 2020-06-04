@@ -15,8 +15,8 @@ use std::{
     cell::UnsafeCell,
     future::Future,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+        Arc,
     },
     task::{Context, Poll},
 };
@@ -46,120 +46,6 @@ where
         self.execute(move || FunTask::run(task));
     }
 }
-
-// pub(crate) struct FunTask<E>
-// where
-//     E: Executor + Sync + 'static,
-// {
-//     future: Mutex<Option<BoxFuture<'static, ()>>>,
-//     executor: E,
-// }
-
-// impl<E> FunTask<E>
-// where
-//     E: Executor + Sync + 'static,
-// {
-//     fn run(task: Arc<Self>) -> () {
-//         // let res = unsafe {
-//         //     let src = task.future.get();
-//         //     src.as_mut().map(|opt| opt.take()).flatten()
-//         // };
-//         let mut guard = task.future.lock().unwrap();
-//         if let Some(mut f) = guard.take() {
-//             let waker = waker_ref(&task);
-//             let context = &mut Context::from_waker(&*waker);
-//             // `BoxFuture<T>` is a type alias for
-//             // `Pin<Box<dyn Future<Output = T> + Send + 'static>>`.
-//             // We can get a `Pin<&mut dyn Future + Send + 'static>`
-//             // from it by calling the `Pin::as_mut` method.
-//             if let Poll::Pending = f.as_mut().poll(context) {
-//                 // We're not done processing the future, so put it
-//                 // back in its task to be run again in the future.
-//                 // unsafe {
-//                 //     let dst = task.future.get();
-//                 //     if let Some(slot) = dst.as_mut() {
-//                 //         *slot = Some(f);
-//                 //     }
-//                 // }
-//                 *guard = Some(f);
-//             }
-//         } // else the future is already done with
-//     }
-// }
-
-// impl<E> ArcWake for FunTask<E>
-// where
-//     E: Executor + Sync + 'static,
-// {
-//     fn wake_by_ref(arc_self: &Arc<Self>) {
-//         // Implement `wake` by sending this task back onto the task channel
-//         // so that it will be polled again by the executor.
-//         let cloned = arc_self.clone();
-//         arc_self.executor.execute(move || FunTask::run(cloned));
-//     }
-// }
-
-// pub(crate) struct FunTask<E>
-// where
-//     E: Executor + Sync + 'static,
-// {
-//     future: UnsafeCell<Option<BoxFuture<'static, ()>>>,
-//     scheduled: AtomicBool,
-//     executor: E,
-// }
-
-// impl<E> FunTask<E>
-// where
-//     E: Executor + Sync + 'static,
-// {
-//     fn run(task: Arc<Self>) -> () {
-//         let res = unsafe {
-//             let src = task.future.get();
-//             src.as_mut().map(|opt| opt.take()).flatten()
-//         };
-//         if let Some(mut f) = res {
-//             let waker = waker_ref(&task);
-//             let context = &mut Context::from_waker(&*waker);
-//             // `BoxFuture<T>` is a type alias for
-//             // `Pin<Box<dyn Future<Output = T> + Send + 'static>>`.
-//             // We can get a `Pin<&mut dyn Future + Send + 'static>`
-//             // from it by calling the `Pin::as_mut` method.
-//             if let Poll::Pending = f.as_mut().poll(context) {
-//                 // We're not done processing the future, so put it
-//                 // back in its task to be run again in the future.
-//                 unsafe {
-//                     let dst = task.future.get();
-//                     if let Some(slot) = dst.as_mut() {
-//                         *slot = Some(f);
-//                     }
-//                 }
-//             }
-//         } else {
-//             // else the future is already done with
-//             //unreachable!("Shouldn't get here!");
-//             //eprintln!("Future got schedulled despite being done!");
-//         }
-//         task.scheduled.store(false, Ordering::Release);
-//     }
-// }
-
-// impl<E> ArcWake for FunTask<E>
-// where
-//     E: Executor + Sync + 'static,
-// {
-//     fn wake_by_ref(arc_self: &Arc<Self>) {
-//         // Implement `wake` by sending this task back onto the task channel
-//         // so that it will be polled again by the executor.
-//         while arc_self
-//             .scheduled
-//             .compare_and_swap(false, true, Ordering::Acquire)
-//         {
-//             // hot wait here, since this only coveres the range between pool and the end of the function, where nothing expensive happens
-//         }
-//         let cloned = arc_self.clone();
-//         arc_self.executor.execute(move || FunTask::run(cloned));
-//     }
-// }
 
 pub(crate) struct FunTask<E>
 where
