@@ -23,7 +23,12 @@
 //! exec.execute(|| println!("bar"));
 //! exec.shutdown();
 //! ```
-
+//!
+//! # Note
+//!
+//! If you use [try_execute_locally](try_execute_locally) from within a job closure,
+//! it will be the same as running recursively, so you may run of out stack space, eventually.
+use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -32,7 +37,12 @@ pub struct RunNowExecutor {
     active: Arc<AtomicBool>,
 }
 
-use super::*;
+struct ThreadLocalRunNow;
+impl CanExecute for ThreadLocalRunNow {
+    fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
+        job();
+    }
+}
 
 impl RunNowExecutor {
     pub fn new() -> RunNowExecutor {
@@ -50,13 +60,26 @@ impl Default for RunNowExecutor {
     }
 }
 
+impl CanExecute for RunNowExecutor {
+    fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
+        if self.active.load(Ordering::SeqCst) {
+            job();
+        } else {
+            warn!("Ignoring job as pool is shutting down.");
+        }
+    }
+}
+
 impl Executor for RunNowExecutor {
+    // override default implementation to avoid boxing at all
     fn execute<F>(&self, job: F)
     where
         F: FnOnce() + Send + 'static,
     {
         if self.active.load(Ordering::SeqCst) {
+            set_local_executor(ThreadLocalRunNow);
             job();
+            unset_local_executor();
         } else {
             warn!("Ignoring job as pool is shutting down.");
         }
@@ -99,6 +122,14 @@ mod tests {
     fn test_defaults() {
         crate::tests::test_defaults::<RunNowExecutor>(LABEL);
     }
+
+    // Will stack overflow.
+    // #[test]
+    // #[should_panic]
+    // fn test_local() {
+    //     let exec = RunNowExecutor::new();
+    //     crate::tests::test_local(exec, LABEL);
+    // }
 
     #[test]
     fn run_tasks() {

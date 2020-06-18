@@ -8,11 +8,21 @@
 
 use std::fmt::Debug;
 
+/// A minimal trait for task executors.
+///
+/// This is mostly useful as a narrowed view for dynamic executor references.
+pub trait CanExecute {
+    /// Executes the function `job` on the `Executor`.
+    ///
+    /// This is the same as [execute](Executor::execute), but already boxed up.
+    fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>);
+}
+
 /// A common trait for task executors.
 ///
 /// All implementations need to allow cloning to create new handles to
 /// the same executor, and they need to be safe to pass to threads.
-pub trait Executor: Clone + Send {
+pub trait Executor: CanExecute + Clone + Send {
     /// Executes the function `job` on the `Executor`.
     ///
     /// # Examples
@@ -33,7 +43,10 @@ pub trait Executor: Clone + Send {
     /// ```
     fn execute<F>(&self, job: F)
     where
-        F: FnOnce() + Send + 'static;
+        F: FnOnce() + Send + 'static,
+    {
+        self.execute_job(Box::new(job));
+    }
 
     /// Shutdown the `Executor` without waiting.
     ///

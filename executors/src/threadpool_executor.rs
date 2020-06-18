@@ -85,7 +85,18 @@ impl Default for ThreadPoolExecutor {
     }
 }
 
+impl CanExecute for ThreadPoolExecutor {
+    fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
+        if self.active.load(Ordering::SeqCst) {
+            self.pool.execute(job);
+        } else {
+            warn!("Ignoring job as pool is shutting down.");
+        }
+    }
+}
+
 impl Executor for ThreadPoolExecutor {
+    // override this here instead of using the default implementation to avoid double boxing
     fn execute<F>(&self, job: F)
     where
         F: FnOnce() + Send + 'static,
@@ -119,12 +130,11 @@ impl Executor for ThreadPoolExecutor {
 
 #[cfg(test)]
 mod tests {
-    use env_logger;
 
     use super::*;
     use std::time::Duration;
 
-    const LABEL: &'static str = "Threadpool";
+    const LABEL: &str = "Threadpool";
 
     #[test]
     fn test_debug() {
@@ -143,6 +153,13 @@ mod tests {
     #[test]
     fn test_defaults() {
         crate::tests::test_defaults::<ThreadPoolExecutor>(LABEL);
+    }
+
+    #[test]
+    #[should_panic] // this executor does not actually support local scheduling
+    fn test_local() {
+        let exec = ThreadPoolExecutor::default();
+        crate::tests::test_local(exec, LABEL);
     }
 
     #[test]

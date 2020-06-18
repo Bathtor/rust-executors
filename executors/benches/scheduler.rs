@@ -21,6 +21,7 @@ pub fn chained_spawn_benchmark(c: &mut Criterion) {
     );
     group.bench_function("Async CBWP", chained_spawn::async_cbwp);
     // CBCP
+    group.bench_function("Local Function CBCP", chained_spawn::local_function_cbcp);
     group.bench_function(
         "No-Local Function CBCP",
         chained_spawn::no_local_function_cbcp,
@@ -33,10 +34,10 @@ pub fn spawn_many_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Spawn Many");
     group.throughput(Throughput::Elements(SPAWN_NUM as u64));
     // CBWP
-    group.bench_function("Local Function CBWP", spawn_many::function_cbwp);
+    group.bench_function("Function CBWP", spawn_many::function_cbwp);
     group.bench_function("Async CBWP", spawn_many::async_cbwp);
     // CBCP
-    group.bench_function("Local Function CBCP", spawn_many::function_cbcp);
+    group.bench_function("Function CBCP", spawn_many::function_cbcp);
     group.bench_function("Async CBCP", spawn_many::async_cbcp);
     group.finish();
 }
@@ -81,6 +82,11 @@ mod chained_spawn {
         chained_spawn_async(b, rt);
     }
 
+    pub fn local_function_cbcp(b: &mut Bencher) {
+        let rt = cbcp_rt();
+        chained_spawn_fun(b, rt);
+    }
+
     pub fn no_local_function_cbcp(b: &mut Bencher) {
         let rt = cbcp_rt();
         chained_spawn_no_local(b, rt);
@@ -96,7 +102,7 @@ mod chained_spawn {
             if n == 0 {
                 done_tx.send(()).unwrap();
             } else {
-                let _ = executors::crossbeam_workstealing_pool::execute_locally(move || {
+                let _ = executors::try_execute_locally(move || {
                     iter(done_tx, n - 1);
                 });
             }

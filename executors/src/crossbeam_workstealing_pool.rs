@@ -333,17 +333,14 @@ impl Default for ThreadPool<DynParker> {
 
 //impl !Sync for ThreadPool {}
 
-impl<P> Executor for ThreadPool<P>
+impl<P> CanExecute for ThreadPool<P>
 where
     P: Parker + Clone + 'static,
 {
-    fn execute<F>(&self, job: F)
-    where
-        F: FnOnce() + Send + 'static,
-    {
+    fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
         if !self.inner.shutdown.load(Ordering::Relaxed) {
             LOCAL_JOB_QUEUE.with(|qo| unsafe {
-                let msg = Job(Box::new(job));
+                let msg = Job(job);
                 match *qo.get() {
                     Some(ref q) => {
                         q.push(msg);
@@ -360,7 +357,12 @@ where
             warn!("Ignoring job as pool is shutting down.")
         }
     }
+}
 
+impl<P> Executor for ThreadPool<P>
+where
+    P: Parker + Clone + 'static,
+{
     fn shutdown_async(&self) {
         let shutdown_pool = self.clone();
         // Need to make sure that pool is shut down before drop is called.
@@ -536,6 +538,23 @@ impl ThreadPoolCore {
     }
 }
 
+struct ThreadLocalExecute;
+impl CanExecute for ThreadLocalExecute {
+    fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
+        LOCAL_JOB_QUEUE.with(|qo| unsafe {
+            let msg = Job(job);
+            match *qo.get() {
+                Some(ref q) => {
+                    q.push(msg);
+                }
+                None => {
+                    unreachable!("Local Executor was set but local job queue was not!");
+                }
+            }
+        })
+    }
+}
+
 #[derive(Debug)]
 struct ThreadPoolWorker<P>
 where
@@ -610,6 +629,7 @@ where
             *q.get() = Some(worker);
             stealer
         });
+        set_local_executor(ThreadLocalExecute);
         let core = self.core.upgrade().expect("Core shut down already!");
         //info!("Setting up new worker {}. strong={}, weak={}", self.id(), Arc::strong_count(&core), Arc::weak_count(&core));
         let local_stealer = JobStealer::new(local_stealer_raw, self.id);
@@ -635,7 +655,7 @@ where
                         match local_queue.pop() {
                             Some(d) => {
                                 let Job(f) = d;
-                                f.call_box();
+                                f();
                             }
                             None => break 'local,
                         }
@@ -695,7 +715,7 @@ where
             });
             if let deque::Steal::Success(msg) = glob_res {
                 let Job(f) = msg;
-                f.call_box();
+                f();
                 self.abort_sleep(&core, &backoff, &mut snoozing, &mut parking);
                 continue 'main;
             }
@@ -709,7 +729,7 @@ where
             for stealer in self.stealers.iter() {
                 if let deque::Steal::Success(msg) = stealer.steal() {
                     let Job(f) = msg;
-                    f.call_box();
+                    f();
                     self.abort_sleep(&core, &backoff, &mut snoozing, &mut parking);
                     continue 'main; // only steal once before checking locally again
                 }
@@ -741,6 +761,7 @@ where
         sentinel.cancel();
         let core = self.core.upgrade().expect("Core shut down already!");
         self.unregister_stealer(&core);
+        unset_local_executor();
         LOCAL_JOB_QUEUE.with(|q| unsafe {
             *q.get() = None;
         });
@@ -767,15 +788,15 @@ where
     }
 }
 
-trait FnBox {
-    fn call_box(self: Box<Self>);
-}
+// trait FnBox {
+//     fn call_box(self: Box<Self>);
+// }
 
-impl<F: FnOnce()> FnBox for F {
-    fn call_box(self: Box<F>) {
-        (*self)()
-    }
-}
+// impl<F: FnOnce()> FnBox for F {
+//     fn call_box(self: Box<F>) {
+//         (*self)()
+//     }
+// }
 
 #[derive(Clone)]
 struct JobStealer {
@@ -813,7 +834,7 @@ impl Debug for JobStealer {
     }
 }
 
-struct Job(Box<dyn FnBox + Send + 'static>);
+struct Job(Box<dyn FnOnce() + Send + 'static>);
 
 enum ControlMsg {
     Stealers(Vec<JobStealer>),
@@ -932,6 +953,12 @@ mod tests {
     fn test_custom_dyn() {
         let exec = ThreadPool::new(72, parker::dynamic());
         crate::tests::test_custom(exec, LABEL);
+    }
+
+    #[test]
+    fn test_local() {
+        let exec = ThreadPool::default();
+        crate::tests::test_local(exec, LABEL);
     }
 
     #[cfg(feature = "thread-pinning")]
