@@ -33,8 +33,10 @@ mod timeconstants;
 use crate::common::ignore;
 pub use crate::common::{CanExecute, Executor};
 
-#[cfg(feature = "futures-support")]
+#[cfg(any(feature = "cb-channel-exec", feature = "workstealing-exec"))]
 pub mod futures_executor;
+#[cfg(any(feature = "cb-channel-exec", feature = "workstealing-exec"))]
+pub use crate::futures_executor::FuturesExecutor;
 
 //use bichannel::*;
 use synchronoise::CountdownEvent;

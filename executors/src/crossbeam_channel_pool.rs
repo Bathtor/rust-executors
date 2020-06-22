@@ -49,6 +49,7 @@
 use super::*;
 
 use crossbeam_channel as channel;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread;
@@ -158,6 +159,17 @@ impl ThreadPool {
         }
         pool
     }
+
+    fn schedule_task(&self, task: async_task::Task<()>) -> () {
+        // NOTE: This check costs about 150k schedulings/s in a 2 by 2 experiment over 20 runs.
+        if !self.shutdown.load(Ordering::SeqCst) {
+            self.sender
+                .send(JobMsg::Task(task))
+                .unwrap_or_else(|e| error!("Error submitting job: {:?}", e));
+        } else {
+            warn!("Ignoring job as pool is shutting down.");
+        }
+    }
 }
 
 /// Create a thread pool with one thread per CPU.
@@ -227,6 +239,20 @@ impl Executor for ThreadPool {
         } else {
             Result::Err(String::from("Pool is already shutting down!"))
         }
+    }
+}
+
+impl FuturesExecutor for ThreadPool {
+    fn spawn(&self, future: impl Future<Output = ()> + 'static + Send) -> () {
+        let exec = self.clone();
+        let (task, _handle) = async_task::spawn(
+            future,
+            move |task| {
+                exec.schedule_task(task);
+            },
+            (),
+        );
+        task.schedule();
     }
 }
 
@@ -340,6 +366,9 @@ impl ThreadPoolWorker {
         while let Ok(msg) = self.recv.recv() {
             match msg {
                 JobMsg::Job(f) => f(),
+                JobMsg::Task(t) => {
+                    let _ = t.run();
+                }
                 JobMsg::Stop(latch) => {
                     ignore(latch.decrement());
                     break;
@@ -364,6 +393,7 @@ impl ThreadPoolWorker {
 
 enum JobMsg {
     Job(Box<dyn FnOnce() + Send + 'static>),
+    Task(async_task::Task<()>),
     Stop(Arc<CountdownEvent>),
 }
 

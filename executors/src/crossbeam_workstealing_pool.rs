@@ -64,18 +64,17 @@
 //! ```
 
 use super::*;
+use crate::futures_executor::FuturesExecutor;
+use crate::parker;
+use crate::parker::{DynParker, ParkResult, Parker};
 use crossbeam_channel as channel;
 use crossbeam_deque as deque;
 use crossbeam_utils::Backoff;
-//use std::sync::mpsc;
-use crate::parker;
-use crate::parker::{DynParker, ParkResult, Parker};
-//use num_cpus;
 use rand::prelude::*;
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
-//use std::iter::{FromIterator, IntoIterator};
+use std::future::Future;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -83,7 +82,6 @@ use std::thread;
 use std::time::Duration;
 #[cfg(feature = "ws-timed-fairness")]
 use std::time::Instant;
-// use time;
 use std::vec::Vec;
 
 /// Creates a thread pool with support for up to 32 threads.
@@ -166,7 +164,7 @@ where
     LOCAL_JOB_QUEUE.with(|qo| unsafe {
         match *qo.get() {
             Some(ref q) => {
-                let msg = Job(Box::new(job));
+                let msg = Job::Function(Box::new(job));
                 q.push(msg);
                 Ok(())
             }
@@ -318,6 +316,27 @@ where
         }
         pool
     }
+
+    fn schedule_task(&self, task: async_task::Task<()>) -> () {
+        if !self.inner.shutdown.load(Ordering::Relaxed) {
+            LOCAL_JOB_QUEUE.with(|qo| unsafe {
+                let msg = Job::Task(task);
+                match *qo.get() {
+                    Some(ref q) => {
+                        q.push(msg);
+                    }
+                    None => {
+                        debug!("Scheduling on global pool.");
+                        self.inner.global_sender.push(msg);
+                        #[cfg(not(feature = "ws-no-park"))]
+                        self.inner.parker.unpark_one();
+                    }
+                }
+            })
+        } else {
+            warn!("Ignoring job as pool is shutting down.")
+        }
+    }
 }
 
 /// Create a thread pool with one thread per CPU.
@@ -340,7 +359,7 @@ where
     fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
         if !self.inner.shutdown.load(Ordering::Relaxed) {
             LOCAL_JOB_QUEUE.with(|qo| unsafe {
-                let msg = Job(job);
+                let msg = Job::Function(job);
                 match *qo.get() {
                     Some(ref q) => {
                         q.push(msg);
@@ -403,6 +422,23 @@ where
         } else {
             Result::Err(String::from("Pool is already shutting down!"))
         }
+    }
+}
+
+impl<P> FuturesExecutor for ThreadPool<P>
+where
+    P: Parker + Clone + 'static,
+{
+    fn spawn(&self, future: impl Future<Output = ()> + 'static + Send) -> () {
+        let exec = self.clone();
+        let (task, _handle) = async_task::spawn(
+            future,
+            move |task| {
+                exec.schedule_task(task);
+            },
+            (),
+        );
+        task.schedule();
     }
 }
 
@@ -542,7 +578,7 @@ struct ThreadLocalExecute;
 impl CanExecute for ThreadLocalExecute {
     fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
         LOCAL_JOB_QUEUE.with(|qo| unsafe {
-            let msg = Job(job);
+            let msg = Job::Function(job);
             match *qo.get() {
                 Some(ref q) => {
                     q.push(msg);
@@ -654,8 +690,7 @@ where
                     'local: loop {
                         match local_queue.pop() {
                             Some(d) => {
-                                let Job(f) = d;
-                                f();
+                                d.run();
                             }
                             None => break 'local,
                         }
@@ -714,8 +749,7 @@ where
                 }
             });
             if let deque::Steal::Success(msg) = glob_res {
-                let Job(f) = msg;
-                f();
+                msg.run();
                 self.abort_sleep(&core, &backoff, &mut snoozing, &mut parking);
                 continue 'main;
             }
@@ -728,8 +762,7 @@ where
             // try to steal something!
             for stealer in self.stealers.iter() {
                 if let deque::Steal::Success(msg) = stealer.steal() {
-                    let Job(f) = msg;
-                    f();
+                    msg.run();
                     self.abort_sleep(&core, &backoff, &mut snoozing, &mut parking);
                     continue 'main; // only steal once before checking locally again
                 }
@@ -834,7 +867,21 @@ impl Debug for JobStealer {
     }
 }
 
-struct Job(Box<dyn FnOnce() + Send + 'static>);
+//struct Job(Box<dyn FnOnce() + Send + 'static>);
+enum Job {
+    Function(Box<dyn FnOnce() + Send + 'static>),
+    Task(async_task::Task<()>),
+}
+impl Job {
+    fn run(self) {
+        match self {
+            Job::Function(f) => f(),
+            Job::Task(t) => {
+                let _ = t.run();
+            }
+        }
+    }
+}
 
 enum ControlMsg {
     Stealers(Vec<JobStealer>),

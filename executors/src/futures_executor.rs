@@ -7,128 +7,11 @@
 // except according to those terms.
 
 use super::*;
-use futures::{
-    future::{BoxFuture, FutureExt},
-    task::{waker_ref, ArcWake},
-};
-use std::{
-    cell::UnsafeCell,
-    future::Future,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-    task::{Context, Poll},
-};
-
-mod task_state {
-    pub const WAITING: usize = 0;
-    pub const SCHEDULED: usize = 1;
-    pub const DONE: usize = 2;
-}
+use std::future::Future;
 
 pub trait FuturesExecutor: Executor + Sync + 'static {
     fn spawn(&self, future: impl Future<Output = ()> + 'static + Send) -> ();
 }
-impl<E> FuturesExecutor for E
-where
-    E: Executor + Sync + 'static,
-{
-    fn spawn(&self, future: impl Future<Output = ()> + 'static + Send) -> () {
-        let future = future.boxed();
-        let task = FunTask {
-            future: UnsafeCell::new(Some(future)),
-            //future: Mutex::new(Some(future)),
-            state: AtomicUsize::new(task_state::SCHEDULED),
-            executor: self.clone(),
-        };
-        let task = Arc::new(task);
-        self.execute(move || FunTask::run(task));
-    }
-}
-
-pub(crate) struct FunTask<E>
-where
-    E: Executor + Sync + 'static,
-{
-    future: UnsafeCell<Option<BoxFuture<'static, ()>>>,
-    state: AtomicUsize,
-    executor: E,
-}
-
-impl<E> FunTask<E>
-where
-    E: Executor + Sync + 'static,
-{
-    fn run(task: Arc<Self>) -> () {
-        let res = unsafe {
-            let src = task.future.get();
-            src.as_mut().map(|opt| opt.take()).flatten()
-        };
-        if let Some(mut f) = res {
-            let waker = waker_ref(&task);
-            let context = &mut Context::from_waker(&*waker);
-            // `BoxFuture<T>` is a type alias for
-            // `Pin<Box<dyn Future<Output = T> + Send + 'static>>`.
-            // We can get a `Pin<&mut dyn Future + Send + 'static>`
-            // from it by calling the `Pin::as_mut` method.
-            if let Poll::Pending = f.as_mut().poll(context) {
-                // We're not done processing the future, so put it
-                // back in its task to be run again in the future.
-                unsafe {
-                    let dst = task.future.get();
-                    if let Some(slot) = dst.as_mut() {
-                        *slot = Some(f);
-                    }
-                }
-                task.state.store(task_state::WAITING, Ordering::Release);
-            } else {
-                task.state.store(task_state::DONE, Ordering::Release);
-            }
-        } else {
-            // else the future is already done with
-            //unreachable!("Shouldn't get here!");
-            //eprintln!("Future got schedulled despite being done!");
-            task.state.store(task_state::DONE, Ordering::Release);
-        }
-    }
-}
-
-impl<E> ArcWake for FunTask<E>
-where
-    E: Executor + Sync + 'static,
-{
-    fn wake_by_ref(arc_self: &Arc<Self>) {
-        // Implement `wake` by sending this task back onto the task channel
-        // so that it will be polled again by the executor.
-
-        loop {
-            // hot wait here, since this only coveres the range between pool and the end of the function, where nothing expensive happens
-            let state = arc_self.state.compare_and_swap(
-                task_state::WAITING,
-                task_state::SCHEDULED,
-                Ordering::Acquire,
-            );
-            match state {
-                task_state::WAITING => {
-                    let cloned = arc_self.clone();
-                    arc_self.executor.execute(move || FunTask::run(cloned));
-                    return;
-                }
-                task_state::SCHEDULED => {
-                    continue;
-                }
-                task_state::DONE => {
-                    return;
-                }
-                _ => unreachable!("Invalid State!"),
-            }
-        }
-    }
-}
-
-//I'm making sure only one thread at a time has access to the contents here
-unsafe impl<E> Sync for FunTask<E> where E: Executor + Sync + 'static {}
 
 #[cfg(test)]
 mod tests {
@@ -136,6 +19,7 @@ mod tests {
 
     use futures::channel::oneshot::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
 
