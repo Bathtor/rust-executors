@@ -161,14 +161,12 @@ impl ThreadPool {
     }
 
     fn schedule_task(&self, task: async_task::Task<()>) -> () {
-        // NOTE: This check costs about 150k schedulings/s in a 2 by 2 experiment over 20 runs.
-        if !self.shutdown.load(Ordering::SeqCst) {
-            self.sender
-                .send(JobMsg::Task(task))
-                .unwrap_or_else(|e| error!("Error submitting job: {:?}", e));
-        } else {
-            warn!("Ignoring job as pool is shutting down.");
-        }
+        // schedule tasks always, even if the pool is already stopped, since it's unsafe to drop from the schedule function
+        // this might lead to some "memory leaks" if an executor remains stopped but allocated for a long time
+
+        self.sender
+            .send(JobMsg::Task(task))
+            .unwrap_or_else(|e| error!("Error submitting job: {:?}", e));
     }
 }
 

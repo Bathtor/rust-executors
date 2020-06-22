@@ -318,24 +318,22 @@ where
     }
 
     fn schedule_task(&self, task: async_task::Task<()>) -> () {
-        if !self.inner.shutdown.load(Ordering::Relaxed) {
-            LOCAL_JOB_QUEUE.with(|qo| unsafe {
-                let msg = Job::Task(task);
-                match *qo.get() {
-                    Some(ref q) => {
-                        q.push(msg);
-                    }
-                    None => {
-                        debug!("Scheduling on global pool.");
-                        self.inner.global_sender.push(msg);
-                        #[cfg(not(feature = "ws-no-park"))]
-                        self.inner.parker.unpark_one();
-                    }
+        // schedule tasks always, even if the pool is already stopped, since it's unsafe to drop from the schedule function
+        // this might lead to some "memory leaks" if an executor remains stopped but allocated for a long time
+        LOCAL_JOB_QUEUE.with(|qo| unsafe {
+            let msg = Job::Task(task);
+            match *qo.get() {
+                Some(ref q) => {
+                    q.push(msg);
                 }
-            })
-        } else {
-            warn!("Ignoring job as pool is shutting down.")
-        }
+                None => {
+                    debug!("Scheduling on global pool.");
+                    self.inner.global_sender.push(msg);
+                    #[cfg(not(feature = "ws-no-park"))]
+                    self.inner.parker.unpark_one();
+                }
+            }
+        })
     }
 }
 
