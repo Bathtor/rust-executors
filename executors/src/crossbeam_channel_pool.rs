@@ -241,9 +241,12 @@ impl Executor for ThreadPool {
 }
 
 impl FuturesExecutor for ThreadPool {
-    fn spawn(&self, future: impl Future<Output = ()> + 'static + Send) -> () {
+    fn spawn<R: Send + 'static>(
+        &self,
+        future: impl Future<Output = R> + 'static + Send,
+    ) -> JoinHandle<R> {
         let exec = self.clone();
-        let (task, _handle) = async_task::spawn(
+        let (task, handle) = async_task::spawn(
             future,
             move |task| {
                 exec.schedule_task(task);
@@ -251,6 +254,7 @@ impl FuturesExecutor for ThreadPool {
             (),
         );
         task.schedule();
+        handle
     }
 }
 

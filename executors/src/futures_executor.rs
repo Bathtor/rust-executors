@@ -9,8 +9,18 @@
 use super::*;
 use std::future::Future;
 
+/// A future that can be used to await the result of a spawned future
+pub type JoinHandle<R> = async_task::JoinHandle<R, ()>;
+
+/// A trait for spawning futures on an Executor
 pub trait FuturesExecutor: Executor + Sync + 'static {
-    fn spawn(&self, future: impl Future<Output = ()> + 'static + Send) -> ();
+    /// Spawn `future` on the pool and return a handle to the result
+    ///
+    /// Handles can be awaited like any other future.
+    fn spawn<R: Send + 'static>(
+        &self,
+        future: impl Future<Output = R> + 'static + Send,
+    ) -> JoinHandle<R>;
 }
 
 #[cfg(test)]
@@ -99,5 +109,32 @@ mod tests {
             thread::sleep(Duration::from_millis(100));
             done = barrier.load(Ordering::SeqCst);
         }
+    }
+
+    #[test]
+    fn test_async_result_ccp() {
+        let exec = crate::crossbeam_channel_pool::ThreadPool::new(2);
+        test_async_result_executor(&exec);
+        exec.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn test_async_result_cwp() {
+        let exec = crate::crossbeam_workstealing_pool::small_pool(2);
+        test_async_result_executor(&exec);
+        exec.shutdown().expect("shutdown");
+    }
+
+    fn test_async_result_executor<E>(exec: &E)
+    where
+        E: FuturesExecutor,
+    {
+        let test_string = "test".to_string();
+        let (tx, rx) = channel::<String>();
+        let handle = exec.spawn(async move { rx.await.expect("message") });
+        thread::sleep(Duration::from_millis(100));
+        tx.send(test_string.clone()).expect("sent");
+        let res = futures::executor::block_on(handle);
+        assert_eq!(res, Some(test_string))
     }
 }
