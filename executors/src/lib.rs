@@ -1,11 +1,12 @@
-// Copyright 2017 Lars Kroll. See the LICENSE
+// Copyright 2017-2020 Lars Kroll. See the LICENSE
 // file at the top-level directory of this distribution.
 //
 // Licensed under the MIT license
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![doc(html_root_url = "https://docs.rs/executors/0.6.1")]
+#![doc(html_root_url = "https://docs.rs/executors/0.7.0")]
+#![deny(missing_docs)]
 #![allow(unused_parens)]
 #![allow(clippy::unused_unit)]
 
@@ -31,17 +32,24 @@ pub mod threadpool_executor;
 mod timeconstants;
 
 use crate::common::ignore;
-pub use crate::common::Executor;
+pub use crate::common::{CanExecute, Executor};
+
+#[cfg(any(feature = "cb-channel-exec", feature = "workstealing-exec"))]
+pub mod futures_executor;
+#[cfg(any(feature = "cb-channel-exec", feature = "workstealing-exec"))]
+pub use crate::futures_executor::{FuturesExecutor, JoinHandle};
 
 //use bichannel::*;
 use synchronoise::CountdownEvent;
 
-// TODO add default implementation for abstract executor impl with associated type executable
+mod locals;
+pub use locals::*;
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use std::fmt::Debug;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -119,6 +127,31 @@ pub(crate) mod tests {
         assert_eq!(res, 0);
     }
 
+    pub fn test_local<E>(exec: E, label: &str)
+    where
+        E: Executor + Debug + 'static,
+    {
+        let pool = exec;
+
+        let latch = Arc::new(CountdownEvent::new(N_DEPTH * N_WIDTH));
+        let failed = Arc::new(AtomicBool::new(false));
+        for _ in 0..N_WIDTH {
+            let latch2 = latch.clone();
+            let failed2 = failed.clone();
+            pool.execute(move || {
+                do_step_local(latch2, failed2, N_DEPTH);
+            });
+        }
+        let res = latch.wait_timeout(Duration::from_secs(30));
+        assert_eq!(res, 0);
+        assert!(
+            !failed.load(Ordering::SeqCst),
+            "Executor does not support local scheduling!"
+        );
+        pool.shutdown()
+            .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
+    }
+
     fn do_step<E>(latch: Arc<CountdownEvent>, pool: E, depth: usize)
     where
         E: Executor + Debug + 'static,
@@ -128,6 +161,35 @@ pub(crate) mod tests {
         if (new_depth > 0) {
             let pool2 = pool.clone();
             pool.execute(move || do_step(latch, pool2, new_depth))
+        }
+    }
+
+    fn do_step_local(latch: Arc<CountdownEvent>, failed: Arc<AtomicBool>, depth: usize) {
+        let new_depth = depth - 1;
+        match latch.decrement() {
+            Ok(_) => {
+                if (new_depth > 0) {
+                    let failed2 = failed.clone();
+                    let latch2 = latch.clone();
+                    let res =
+                        try_execute_locally(move || do_step_local(latch2, failed2, new_depth));
+                    if res.is_err() {
+                        error!("do_step_local should have executed locally!");
+                        failed.store(true, Ordering::SeqCst);
+                        while latch.decrement().is_ok() {
+                            () // do nothing, just keep draining, so the main thread wakes up
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if failed.load(Ordering::SeqCst) {
+                    warn!("Aborting test as it failed");
+                // and simply return here
+                } else {
+                    panic!("Latch didn't decrement! Error: {:?}", e);
+                }
+            }
         }
     }
 }

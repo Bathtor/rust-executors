@@ -1,4 +1,4 @@
-// Copyright 2017 Lars Kroll. See the LICENSE
+// Copyright 2017-2020 Lars Kroll. See the LICENSE
 // file at the top-level directory of this distribution.
 //
 // Licensed under the MIT license
@@ -49,11 +49,15 @@
 use super::*;
 
 use crossbeam_channel as channel;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 use std::time::Duration;
 
+/// A handle to a [crossbeam_channel_pool](crossbeam_channel_pool)
+///
+/// See module level documentation for usage information.
 #[derive(Clone, Debug)]
 pub struct ThreadPool {
     core: Arc<Mutex<ThreadPoolCore>>,
@@ -158,6 +162,15 @@ impl ThreadPool {
         }
         pool
     }
+
+    fn schedule_task(&self, task: async_task::Task<()>) -> () {
+        // schedule tasks always, even if the pool is already stopped, since it's unsafe to drop from the schedule function
+        // this might lead to some "memory leaks" if an executor remains stopped but allocated for a long time
+
+        self.sender
+            .send(JobMsg::Task(task))
+            .unwrap_or_else(|e| error!("Error submitting job: {:?}", e));
+    }
 }
 
 /// Create a thread pool with one thread per CPU.
@@ -170,21 +183,20 @@ impl Default for ThreadPool {
     }
 }
 
-impl Executor for ThreadPool {
-    fn execute<F>(&self, job: F)
-    where
-        F: FnOnce() + Send + 'static,
-    {
+impl CanExecute for ThreadPool {
+    fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
         // NOTE: This check costs about 150k schedulings/s in a 2 by 2 experiment over 20 runs.
         if !self.shutdown.load(Ordering::SeqCst) {
             self.sender
-                .send(JobMsg::Job(Box::new(job)))
+                .send(JobMsg::Job(job))
                 .unwrap_or_else(|e| error!("Error submitting job: {:?}", e));
         } else {
             warn!("Ignoring job as pool is shutting down.");
         }
     }
+}
 
+impl Executor for ThreadPool {
     fn shutdown_async(&self) {
         if !self
             .shutdown
@@ -228,6 +240,24 @@ impl Executor for ThreadPool {
         } else {
             Result::Err(String::from("Pool is already shutting down!"))
         }
+    }
+}
+
+impl FuturesExecutor for ThreadPool {
+    fn spawn<R: Send + 'static>(
+        &self,
+        future: impl Future<Output = R> + 'static + Send,
+    ) -> JoinHandle<R> {
+        let exec = self.clone();
+        let (task, handle) = async_task::spawn(
+            future,
+            move |task| {
+                exec.schedule_task(task);
+            },
+            (),
+        );
+        task.schedule();
+        handle
     }
 }
 
@@ -299,6 +329,15 @@ impl Drop for ThreadPoolCore {
     }
 }
 
+struct ThreadLocalExecute(channel::Sender<JobMsg>);
+impl CanExecute for ThreadLocalExecute {
+    fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
+        self.0
+            .send(JobMsg::Job(job))
+            .unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
+    }
+}
+
 struct ThreadPoolWorker {
     id: usize,
     core: Weak<Mutex<ThreadPoolCore>>,
@@ -322,33 +361,44 @@ impl ThreadPoolWorker {
     }
     fn run(&mut self) {
         debug!("CrossbeamWorker {} starting", self.id());
+        let sender = {
+            let core = self.core.upgrade().expect("Core already shut down!");
+            let guard = core.lock().expect("Mutex poisoned!");
+            guard.sender.clone()
+        };
         let sentinel = Sentinel::new(self.core.clone(), self.id);
+        set_local_executor(ThreadLocalExecute(sender));
         while let Ok(msg) = self.recv.recv() {
             match msg {
-                JobMsg::Job(f) => f.call_box(),
+                JobMsg::Job(f) => f(),
+                JobMsg::Task(t) => {
+                    let _ = t.run();
+                }
                 JobMsg::Stop(latch) => {
                     ignore(latch.decrement());
                     break;
                 }
             }
         }
+        unset_local_executor();
         sentinel.cancel();
         debug!("CrossbeamWorker {} shutting down", self.id());
     }
 }
 
-trait FnBox {
-    fn call_box(self: Box<Self>);
-}
+// trait FnBox {
+//     fn call_box(self: Box<Self>);
+// }
 
-impl<F: FnOnce()> FnBox for F {
-    fn call_box(self: Box<F>) {
-        (*self)()
-    }
-}
+// impl<F: FnOnce()> FnBox for F {
+//     fn call_box(self: Box<F>) {
+//         (*self)()
+//     }
+// }
 
 enum JobMsg {
-    Job(Box<dyn FnBox + Send + 'static>),
+    Job(Box<dyn FnOnce() + Send + 'static>),
+    Task(async_task::Task<()>),
     Stop(Arc<CountdownEvent>),
 }
 
@@ -391,7 +441,7 @@ mod tests {
 
     use super::*;
 
-    const LABEL: &'static str = "Crossbeam Channel Pool";
+    const LABEL: &str = "Crossbeam Channel Pool";
 
     #[test]
     fn test_debug() {
@@ -410,6 +460,12 @@ mod tests {
     #[test]
     fn test_defaults() {
         crate::tests::test_defaults::<ThreadPool>(LABEL);
+    }
+
+    #[test]
+    fn test_local() {
+        let exec = ThreadPool::default();
+        crate::tests::test_local(exec, LABEL);
     }
 
     #[cfg(feature = "thread-pinning")]

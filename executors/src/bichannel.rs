@@ -37,6 +37,10 @@ pub fn bichannel<Left, Right>() -> (Endpoint<Right, Left>, Endpoint<Left, Right>
     (endpoint_left, endpoint_right)
 }
 
+/// One end of a bichannel
+///
+/// This end can send `In` type to the other end
+/// and receive `Out` type from the other end.
 pub struct Endpoint<In, Out> {
     sender: Sender<Out>,
     receiver: Receiver<In>,
@@ -46,32 +50,52 @@ impl<In, Out> Endpoint<In, Out> {
     fn new(sender: Sender<Out>, receiver: Receiver<In>) -> Endpoint<In, Out> {
         Endpoint { sender, receiver }
     }
+
+    /// Send `t` to the other end
+    ///
+    /// This functions works just like [mpsc send](std::sync::mpsc::Sender::send).
     pub fn send(&self, t: Out) -> Result<(), SendError<Out>> {
         self.sender.send(t)
     }
+
+    /// Receive something from the channel without blocking
+    ///
+    /// This functions works just like [mpsc try_recv](std::sync::mpsc::Receiver::try_recv).
     pub fn try_recv(&self) -> Result<In, TryRecvError> {
         self.receiver.try_recv()
     }
+
+    /// Receive something from the channel, blocking until something is available
+    ///
+    /// This functions works just like [mpsc recv](std::sync::mpsc::Receiver::recv).
     pub fn recv(&self) -> Result<In, RecvError> {
         self.receiver.recv()
     }
+
+    /// Receive something from the channel, blocking until something is available or the timeout expires
+    ///
+    /// This functions works just like [mpsc recv_timeout](std::sync::mpsc::Receiver::recv_timeout).
     pub fn recv_timeout(&self, timeout: Duration) -> Result<In, RecvTimeoutError> {
         self.receiver.recv_timeout(timeout)
     }
+
+    /// Iterate over incoming data
+    ///
+    /// This functions works just like [mpsc iter](std::sync::mpsc::Receiver::iter).
     pub fn iter(&self) -> Iter<'_, In> {
         self.receiver.iter()
     }
+
+    /// Iterate over incoming data
+    ///
+    /// This functions works just like [mpsc try_iter](std::sync::mpsc::Receiver::try_iter).
     pub fn try_iter(&self) -> TryIter<'_, In> {
         self.receiver.try_iter()
     }
 }
 
-//impl<In, Out> !Sync for Endpoint<In, Out> {}
-unsafe impl<In: Send, Out: Send> Send for Endpoint<In, Out> {}
-
 #[cfg(test)]
 mod tests {
-    use env_logger;
 
     use super::*;
     use crate::common::ignore;
