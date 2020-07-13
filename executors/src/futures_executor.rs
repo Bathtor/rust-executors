@@ -6,6 +6,11 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
+//! Support for Rust's futures and async/await APIs
+//!
+//! This functionality is provided via the [FuturesExecutor](FuturesExecutor)
+//! trait, which is implemented for all executors in this crate that can efficiently support it.
+
 use super::*;
 use std::future::Future;
 
@@ -17,6 +22,22 @@ pub trait FuturesExecutor: Executor + Sync + 'static {
     /// Spawn `future` on the pool and return a handle to the result
     ///
     /// Handles can be awaited like any other future.
+    ///
+    /// # Examples
+    ///
+    /// Execute an "expensive" computation on the pool and 
+    /// block the main thread waiting for the result to become available.
+    ///
+    /// ```
+    /// use executors::*;
+    /// use futures::executor::block_on;
+    /// # use executors::crossbeam_channel_pool::ThreadPool;
+    /// // initialise some executor
+    /// # let executor = ThreadPool::new(2);
+    /// let handle = executor.spawn(async move { 2*2 });
+    /// let result = block_on(handle).expect("result");
+    /// assert_eq!(4, result);
+    /// ```
     fn spawn<R: Send + 'static>(
         &self,
         future: impl Future<Output = R> + 'static + Send,

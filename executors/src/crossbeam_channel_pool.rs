@@ -55,6 +55,9 @@ use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 use std::time::Duration;
 
+/// A handle to a [crossbeam_channel_pool](crossbeam_channel_pool)
+///
+/// See module level documentation for usage information.
 #[derive(Clone, Debug)]
 pub struct ThreadPool {
     core: Arc<Mutex<ThreadPoolCore>>,

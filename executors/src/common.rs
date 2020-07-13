@@ -6,6 +6,8 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
+//! The core traits and reusable functions of this crate.
+
 use std::fmt::Debug;
 
 /// A minimal trait for task executors.

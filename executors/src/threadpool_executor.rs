@@ -43,6 +43,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use threadpool::ThreadPool;
 
+/// A handle to a [threadpool_executor](threadpool_executor)
+///
+/// See module level documentation for usage information.
 #[derive(Clone, Debug)]
 pub struct ThreadPoolExecutor {
     pool: ThreadPool,

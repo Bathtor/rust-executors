@@ -6,6 +6,11 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
+//! A reusable thread-pool-parking mechanism.
+//!
+//! This module is mostly meant for internal use within this crate,
+//! but could be used to build custom thread-pools as well.
+
 use arr_macro::arr;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -14,12 +19,17 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::Thread;
 
+/// Get a parker for up to 32 threads
 pub fn small() -> StaticParker<SmallThreadData> {
     StaticParker::new(SmallThreadData::new())
 }
+
+/// Get a parker for up to 64 threads
 pub fn large() -> StaticParker<LargeThreadData> {
     StaticParker::new(LargeThreadData::new())
 }
+
+/// Get a parker for an unbounded number of threads
 pub fn dynamic() -> StaticParker<DynamicThreadData> {
     StaticParker::new(DynamicThreadData::new())
 }
@@ -29,16 +39,17 @@ pub fn dynamic() -> StaticParker<DynamicThreadData> {
 pub enum ParkResult {
     /// Simply retry parking later.
     /// Usually, indicates that implementation wanted avoid blocking on a lock.
-    /// The parker was left in the "prepared" state (s. [`prepare_park`]).
+    /// The parker was left in the "prepared" state (s. [prepare_park](Parker::prepare_park)).
     Retry,
     /// Recheck managed resource before retrying.
-    /// The parker was moved out of the "prepared" state (s. [`abort_park`]).
+    /// The parker was moved out of the "prepared" state (s. [abort_park](Parker::abort_park)).
     Abort,
     /// Thread parked and then was awoken via `unpark`.
-    /// The parker was moved out of the "prepared" state (s. [`abort_park`]).
+    /// The parker was moved out of the "prepared" state (s. [unpark_one](Parker::unpark_one) and [unpark_all](Parker::unpark_all)).
     Woken,
 }
 
+/// The core trait that every parker implementation must provide
 pub trait Parker: Sync + Send + Clone {
     /// Maximum number of threads supported by this parker implementation.
     fn max_threads(&self) -> Option<usize>;
@@ -50,15 +61,15 @@ pub trait Parker: Sync + Send + Clone {
 
     /// Prepare to go to sleep.
     /// You *must* call this before doing one last check on the resource being managed.
-    /// If the resource is available afterwards, you *must* call [`abort_park`].
-    /// If it is not available afterwards, then call [`park`].
+    /// If the resource is available afterwards, you *must* call [abort_park](Parker::abort_park).
+    /// If it is not available afterwards, then call [park](Parker::park).
     ///
     /// The provided `thread_id` must fit into the underlying parker implementation, or a panic will be issued!
     ///
     fn prepare_park(&self, thread_id: usize) -> ();
 
     /// Abort attempt at going to sleep.
-    /// You *must* call this if you have called [`prepare_park`], but then the resource became available.
+    /// You *must* call this if you have called [prepare_park](Parker::prepare_park), but then the resource became available.
     ///
     /// The provided `thread_id` must fit into the underlying parker implementation, or a panic will be issued!
     ///
@@ -80,6 +91,7 @@ pub trait Parker: Sync + Send + Clone {
     fn unpark_all(&self) -> ();
 }
 
+/// A trait-object-like wrapper around a concrete parker instance
 #[derive(Clone, Debug)]
 pub struct DynParker {
     inner: Arc<dyn ThreadData + Sync + Send>,
@@ -132,6 +144,9 @@ impl Parker for DynParker {
     }
 }
 
+/// A concrete parker instance
+///
+/// The generic parameter `T` implements the internal state management of the parker.
 #[derive(Debug)]
 pub struct StaticParker<T>
 where
@@ -214,6 +229,7 @@ where
     }
 }
 
+/// A trait that manages the internal state of a parker implementation
 pub trait ThreadData: std::fmt::Debug {
     /// Maximum number of threads supported by this parker implementation.
     fn max_threads(&self) -> Option<usize>;
@@ -249,12 +265,14 @@ enum ParkState {
     Waking,
 }
 
+/// Parker state large enough for up to 32 threads
 #[derive(Debug)]
 pub struct SmallThreadData {
     sleep_set: AtomicU32,
     sleeping: Mutex<[ParkState; 32]>,
 }
 impl SmallThreadData {
+    /// The maximum number of threads supported by this parker
     pub const MAX_THREADS: usize = 32;
 
     fn new() -> SmallThreadData {
@@ -386,11 +404,13 @@ impl ThreadData for SmallThreadData {
     }
 }
 
+/// Parker state for up to 64 threads
 pub struct LargeThreadData {
     sleep_set: AtomicU64,
     sleeping: Mutex<[ParkState; 64]>,
 }
 impl LargeThreadData {
+    /// The maximum number of threads supported by this parker
     pub const MAX_THREADS: usize = 64;
 
     fn new() -> LargeThreadData {
@@ -545,6 +565,16 @@ impl InnerData {
     }
 }
 
+/// Park state for an unbounded number of threads
+///
+/// Uses a dynamic datastructure internally
+/// to keep track of the state for each thread.
+///
+/// # Note
+///
+/// Technically, since thread-ids are `usize`,
+/// there still is an upper bound for the maximum
+/// number of threads in a pool, i.e. `usize::MAX`.
 #[derive(Debug)]
 pub struct DynamicThreadData {
     sleep_count: AtomicUsize,

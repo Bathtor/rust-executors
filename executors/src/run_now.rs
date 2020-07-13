@@ -6,7 +6,10 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! A simple `Executor` that simply runs tasks on the current thread.
+//! A simple `Executor` that simply runs tasks immediately on the current thread.
+//!
+//! This is mostly useful to work with APIs that require an `Executor`,
+//! even if "normal" stack-based execution is actually desired.
 //!
 //! # Examples
 //!
@@ -32,6 +35,9 @@ use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// A handle to the [run_now](run_now) executor
+///
+/// See module level documentation for usage information.
 #[derive(Clone, Debug)]
 pub struct RunNowExecutor {
     active: Arc<AtomicBool>,
@@ -45,6 +51,7 @@ impl CanExecute for ThreadLocalRunNow {
 }
 
 impl RunNowExecutor {
+    /// Create a new [run_now](run_now) executor
     pub fn new() -> RunNowExecutor {
         RunNowExecutor {
             active: Arc::new(AtomicBool::new(true)),

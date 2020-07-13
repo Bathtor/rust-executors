@@ -13,7 +13,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-executors = "0.6"
+executors = "0.7"
 ```
 
 You can use, for example, the [crossbeam_workstealing_pool](https://docs.rs/executors/latest/executors/crossbeam_workstealing_pool/index.html) to schedule a number `n_jobs` over a number `n_workers` threads, and collect the results via an `mpsc::channel`.
@@ -59,7 +59,7 @@ You can enable support for pinning pool threads to particular CPU cores via the 
 
 ## Some Numbers
 
-The following are some example result from my desktop machine (Intel i7-4770 @ 3.40Ghz Quad-Core with HT (8 logical cores) with 16GB of RAM).
+The following are some example results from my desktop machine (Intel i7-4770 @ 3.40Ghz Quad-Core with HT (8 logical cores) with 16GB of RAM).
 *Note* that they are all from a single run and thus not particularly scientific and subject to whatever else was going on on my system during the run.
 
 Implementation abbreviations:
@@ -170,6 +170,6 @@ This corresponds to a very large internal workload in response to every external
 
 ## License
 
-Licensed under the terms of MIT license.
+Licensed under the terms of the MIT license.
 
 See [LICENSE](LICENSE) for details.
