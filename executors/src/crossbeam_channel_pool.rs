@@ -267,7 +267,10 @@ fn spawn_worker(core: Arc<Mutex<ThreadPoolCore>>) {
         guard.new_worker_id()
     };
     let mut worker = ThreadPoolWorker::new(id, core);
-    thread::spawn(move || worker.run());
+    thread::Builder::new()
+        .name("cb-channel-pool-worker".to_string())
+        .spawn(move || worker.run())
+        .expect("Could not create worker thread!");
 }
 
 #[cfg(feature = "thread-pinning")]
@@ -277,10 +280,13 @@ fn spawn_worker_pinned(core: Arc<Mutex<ThreadPoolCore>>, core_id: core_affinity:
         guard.new_worker_id()
     };
     let mut worker = ThreadPoolWorker::new(id, core.clone());
-    thread::spawn(move || {
-        core_affinity::set_for_current(core_id);
-        worker.run()
-    });
+    thread::Builder::new()
+        .name("cb-channel-pool-worker".to_string())
+        .spawn(move || {
+            core_affinity::set_for_current(core_id);
+            worker.run()
+        })
+        .expect("Could not create worker thread!");
 }
 
 #[derive(Debug)]

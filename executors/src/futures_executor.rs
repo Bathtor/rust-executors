@@ -25,7 +25,7 @@ pub trait FuturesExecutor: Executor + Sync + 'static {
     ///
     /// # Examples
     ///
-    /// Execute an "expensive" computation on the pool and 
+    /// Execute an "expensive" computation on the pool and
     /// block the main thread waiting for the result to become available.
     ///
     /// ```
