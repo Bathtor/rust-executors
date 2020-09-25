@@ -444,7 +444,6 @@ impl Drop for Sentinel {
 
 #[cfg(test)]
 mod tests {
-    use env_logger;
 
     use super::*;
 
@@ -460,8 +459,7 @@ mod tests {
     #[test]
     fn test_sleepy() {
         let exec = ThreadPool::new(4);
-        crate::tests::test_sleepy(&exec, LABEL);
-        exec.shutdown().expect("Pool didn't shut down!");
+        crate::tests::test_sleepy(exec, LABEL);
     }
 
     #[test]
@@ -501,6 +499,7 @@ mod tests {
         });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
+        pool.shutdown().expect("shutdown");
     }
 
     // replace ignore with panic cfg gate when https://github.com/rust-lang/rust/pull/74754 is merged
@@ -522,6 +521,7 @@ mod tests {
         });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
+        pool.shutdown().expect("shutdown");
     }
 
     #[test]

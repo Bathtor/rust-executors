@@ -969,11 +969,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use env_logger;
 
     use super::*;
 
-    const LABEL: &'static str = "Workstealing Pool";
+    const LABEL: &str = "Workstealing Pool";
 
     #[test]
     fn test_debug() {
@@ -985,8 +984,7 @@ mod tests {
     #[test]
     fn test_sleepy() {
         let exec = ThreadPool::new(4, parker::small());
-        crate::tests::test_sleepy(&exec, LABEL);
-        exec.shutdown().expect("Pool didn't shut down!");
+        crate::tests::test_sleepy(exec, LABEL);
     }
 
     #[test]

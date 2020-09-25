@@ -149,8 +149,7 @@ mod tests {
     #[test]
     fn test_sleepy() {
         let exec = ThreadPoolExecutor::new(4);
-        crate::tests::test_sleepy(&exec, LABEL);
-        exec.shutdown().expect("Pool didn't shut down!");
+        crate::tests::test_sleepy(exec, LABEL);
     }
 
     #[test]

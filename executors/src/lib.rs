@@ -124,7 +124,7 @@ pub(crate) mod tests {
             .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
     }
 
-    pub fn test_sleepy<E>(pool: &E, label: &str)
+    pub fn test_sleepy<E>(pool: E, label: &str)
     where
         E: Executor + 'static,
     {
@@ -142,6 +142,8 @@ pub(crate) mod tests {
         }
         let res = latch.wait_timeout(Duration::from_secs((N_SLEEP_ROUNDS as u64) * 3));
         assert_eq!(res, 0);
+        pool.shutdown()
+            .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
     }
 
     pub fn test_local<E>(exec: E, label: &str)
