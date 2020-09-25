@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_defaults() {
-        crate::tests::test_defaults::<RunNowExecutor>(LABEL);
+        crate::tests::test_small_defaults::<RunNowExecutor>(LABEL);
     }
 
     // Will stack overflow.

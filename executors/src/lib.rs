@@ -53,15 +53,36 @@ pub(crate) mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    pub const N_DEPTH: usize = 4096;
-    //pub const N_DEPTH: usize = 100000; // run_now can't do this, but it's a good test for the others
+    pub const N_DEPTH_SMALL: usize = 1024;
+    pub const N_DEPTH: usize = 8192; // run_now can't do this, but it's a good test for the others
     pub const N_WIDTH: usize = 128;
+    pub const N_SLEEP_ROUNDS: usize = 10;
 
     pub fn test_debug<E>(exec: &E, label: &str)
     where
         E: Executor + Debug,
     {
         println!("Debug output for {}: {:?}", label, exec);
+    }
+
+    pub fn test_small_defaults<E>(label: &str)
+    where
+        E: Executor + Debug + std::default::Default + 'static,
+    {
+        let pool = E::default();
+
+        let latch = Arc::new(CountdownEvent::new(N_DEPTH_SMALL * N_WIDTH));
+        for _ in 0..N_WIDTH {
+            let pool2 = pool.clone();
+            let latch2 = latch.clone();
+            pool.execute(move || {
+                do_step(latch2, pool2, N_DEPTH_SMALL);
+            });
+        }
+        let res = latch.wait_timeout(Duration::from_secs(30));
+        assert_eq!(res, 0);
+        pool.shutdown()
+            .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
     }
 
     pub fn test_defaults<E>(label: &str)
@@ -78,7 +99,7 @@ pub(crate) mod tests {
                 do_step(latch2, pool2, N_DEPTH);
             });
         }
-        let res = latch.wait_timeout(Duration::from_secs(30));
+        let res = latch.wait_timeout(Duration::from_secs(60));
         assert_eq!(res, 0);
         pool.shutdown()
             .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
@@ -109,21 +130,18 @@ pub(crate) mod tests {
         E: Executor + 'static,
     {
         info!("Running sleepy test for {}", label);
-        let latch = Arc::new(CountdownEvent::new(2 * N_WIDTH));
-        for _ in 0..N_WIDTH {
-            let latch2 = latch.clone();
-            pool.execute(move || {
-                latch2.decrement().expect("Latch didn't decrement!");
-            });
+        let latch = Arc::new(CountdownEvent::new(N_SLEEP_ROUNDS * N_WIDTH));
+        for _round in 0..N_SLEEP_ROUNDS {
+            // let threads go to sleep
+            std::thread::sleep(Duration::from_secs(1));
+            for _ in 0..N_WIDTH {
+                let latch2 = latch.clone();
+                pool.execute(move || {
+                    latch2.decrement().expect("Latch didn't decrement!");
+                });
+            }
         }
-        std::thread::sleep(Duration::from_secs(1));
-        for _ in 0..N_WIDTH {
-            let latch2 = latch.clone();
-            pool.execute(move || {
-                latch2.decrement().expect("Latch didn't decrement!");
-            });
-        }
-        let res = latch.wait_timeout(Duration::from_secs(5));
+        let res = latch.wait_timeout(Duration::from_secs((N_SLEEP_ROUNDS as u64) * 3));
         assert_eq!(res, 0);
     }
 
