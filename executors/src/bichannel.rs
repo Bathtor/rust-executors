@@ -98,7 +98,6 @@ impl<In, Out> Endpoint<In, Out> {
 mod tests {
 
     use super::*;
-    use crate::common::ignore;
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
@@ -121,14 +120,14 @@ mod tests {
                 left.send(Ping).expect("should send ping");
                 left.recv().expect("should get pong");
             }
-            ignore(latch_left.decrement());
+            let _ = latch_left.decrement();
         });
         thread::spawn(move || {
             for _ in 0..ROUNDTRIPS {
                 right.recv().expect("should get pong");
                 right.send(Pong).expect("should send pong");
             }
-            ignore(latch_right.decrement());
+            let _ = latch_right.decrement();
         });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);

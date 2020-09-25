@@ -61,6 +61,7 @@
 //! }
 //!
 //! assert_eq!(rx.iter().take(n_jobs).fold(0, |a, b| a + b), 8);
+//! # pool.shutdown();
 //! ```
 
 use super::*;
@@ -127,6 +128,7 @@ pub fn dyn_pool(threads: usize) -> ThreadPool<parker::StaticParker<parker::Dynam
 /// use executors::crossbeam_workstealing_pool;
 ///
 /// let pool = crossbeam_workstealing_pool::pool_with_auto_parker(4);
+/// # pool.shutdown();
 /// ```
 pub fn pool_with_auto_parker(threads: usize) -> ThreadPool<DynParker> {
     if threads <= parker::SmallThreadData::MAX_THREADS {
@@ -228,6 +230,7 @@ where
     /// use executors::crossbeam_workstealing_pool::ThreadPool;
     ///
     /// let pool = ThreadPool::new(4, parker::small());
+    /// # pool.shutdown();
     /// ```
     pub fn new(threads: usize, parker: P) -> ThreadPool<P> {
         assert!(threads > 0);
@@ -1033,8 +1036,12 @@ mod tests {
         let pool = ThreadPool::new(2, parker::small());
         let latch2 = latch.clone();
         let latch3 = latch.clone();
-        pool.execute(move || ignore(latch2.decrement()));
-        pool.execute(move || ignore(latch3.decrement()));
+        pool.execute(move || {
+            let _ = latch2.decrement();
+        });
+        pool.execute(move || {
+            let _ = latch3.decrement();
+        });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
         pool.shutdown()
@@ -1052,12 +1059,16 @@ mod tests {
         let latch2 = latch.clone();
         let latch3 = latch.clone();
         pool.execute(move || {
-            ignore(latch2.decrement());
-            pool2.execute(move || ignore(latch2.decrement()));
+            let _ = latch2.decrement();
+            pool2.execute(move || {
+                let _ = latch2.decrement();
+            });
         });
         pool.execute(move || {
-            ignore(latch3.decrement());
-            pool3.execute(move || ignore(latch3.decrement()));
+            let _ = latch3.decrement();
+            pool3.execute(move || {
+                let _ = latch3.decrement();
+            });
         });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
@@ -1065,7 +1076,9 @@ mod tests {
             .unwrap_or_else(|e| error!("Error during pool shutdown {:?}", e));
     }
 
+    // replace ignore with panic cfg gate when https://github.com/rust-lang/rust/pull/74754 is merged
     #[test]
+    #[ignore]
     fn keep_pool_size() {
         let _ = env_logger::try_init();
 
@@ -1073,16 +1086,22 @@ mod tests {
         let pool = ThreadPool::new(1, parker::small());
         let latch2 = latch.clone();
         let latch3 = latch.clone();
-        pool.execute(move || ignore(latch2.decrement()));
+        pool.execute(move || {
+            let _ = latch2.decrement();
+        });
         pool.execute(move || panic!("test panic please ignore"));
-        pool.execute(move || ignore(latch3.decrement()));
+        pool.execute(move || {
+            let _ = latch3.decrement();
+        });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
         pool.shutdown()
             .unwrap_or_else(|e| error!("Error during pool shutdown {:?}", e));
     }
 
+    // replace ignore with panic cfg gate when https://github.com/rust-lang/rust/pull/74754 is merged
     #[test]
+    #[ignore]
     fn reassign_jobs_from_failed_queues() {
         let _ = env_logger::try_init();
 
@@ -1091,9 +1110,13 @@ mod tests {
         let pool2 = pool.clone();
         let latch2 = latch.clone();
         let latch3 = latch.clone();
-        pool.execute(move || ignore(latch2.decrement()));
         pool.execute(move || {
-            pool2.execute(move || ignore(latch3.decrement()));
+            let _ = latch2.decrement();
+        });
+        pool.execute(move || {
+            pool2.execute(move || {
+                let _ = latch3.decrement();
+            });
             panic!("test panic please ignore")
         });
         let res = latch.wait_timeout(Duration::from_secs(5));
@@ -1132,15 +1155,19 @@ mod tests {
         let latch3 = latch.clone();
         let stop_latch = Arc::new(CountdownEvent::new(1));
         let stop_latch2 = stop_latch.clone();
-        pool.execute(move || ignore(latch2.decrement()));
+        pool.execute(move || {
+            let _ = latch2.decrement();
+        });
         pool.execute(move || {
             pool2.shutdown_async();
-            ignore(stop_latch2.decrement());
+            let _ = stop_latch2.decrement();
         });
         let res = stop_latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 0);
         thread::sleep(Duration::from_secs(1)); // give the new shutdown thread some time to run
-        pool.execute(move || ignore(latch3.decrement()));
+        pool.execute(move || {
+            let _ = latch3.decrement();
+        });
         let res = latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 1);
     }
@@ -1155,18 +1182,24 @@ mod tests {
         let stop_latch = Arc::new(CountdownEvent::new(1));
         let run_latch2 = run_latch.clone();
         let stop_latch2 = stop_latch.clone();
-        pool.execute(move || ignore(run_latch2.decrement()));
+        pool.execute(move || {
+            let _ = run_latch2.decrement();
+        });
         let res = run_latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 0);
         pool.shutdown().expect("pool to shut down");
-        pool2.execute(move || ignore(stop_latch2.decrement()));
+        pool2.execute(move || {
+            let _ = stop_latch2.decrement();
+        });
         let res = stop_latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 1);
     }
 
     /// This test may/should panic on the worker threads, for example with "Threadpool wasn't shut down properly!".
     /// Otherwise they aren't shut down properly.
+    // replace ignore with panic cfg gate when https://github.com/rust-lang/rust/pull/74754 is merged
     #[test]
+    #[ignore]
     fn dealloc_on_handle_drop() {
         let _ = env_logger::try_init();
 

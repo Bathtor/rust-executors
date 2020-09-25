@@ -88,6 +88,7 @@ impl ThreadPool {
     /// use executors::crossbeam_channel_pool::ThreadPool;
     ///
     /// let pool = ThreadPool::new(4);
+    /// # pool.shutdown();
     /// ```
     pub fn new(threads: usize) -> ThreadPool {
         assert!(threads > 0);
@@ -381,7 +382,7 @@ impl ThreadPoolWorker {
                     let _ = t.run();
                 }
                 JobMsg::Stop(latch) => {
-                    ignore(latch.decrement());
+                    let _ = latch.decrement();
                     break;
                 }
             }
@@ -492,13 +493,19 @@ mod tests {
         let pool = ThreadPool::new(2);
         let latch2 = latch.clone();
         let latch3 = latch.clone();
-        pool.execute(move || ignore(latch2.decrement()));
-        pool.execute(move || ignore(latch3.decrement()));
+        pool.execute(move || {
+            let _ = latch2.decrement();
+        });
+        pool.execute(move || {
+            let _ = latch3.decrement();
+        });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
     }
 
+    // replace ignore with panic cfg gate when https://github.com/rust-lang/rust/pull/74754 is merged
     #[test]
+    #[ignore]
     fn keep_pool_size() {
         let _ = env_logger::try_init();
 
@@ -506,9 +513,13 @@ mod tests {
         let pool = ThreadPool::new(1);
         let latch2 = latch.clone();
         let latch3 = latch.clone();
-        pool.execute(move || ignore(latch2.decrement()));
+        pool.execute(move || {
+            let _ = latch2.decrement();
+        });
         pool.execute(move || panic!("test panic please ignore"));
-        pool.execute(move || ignore(latch3.decrement()));
+        pool.execute(move || {
+            let _ = latch3.decrement();
+        });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
     }
@@ -524,14 +535,18 @@ mod tests {
         let latch3 = latch.clone();
         let stop_latch = Arc::new(CountdownEvent::new(1));
         let stop_latch2 = stop_latch.clone();
-        pool.execute(move || ignore(latch2.decrement()));
+        pool.execute(move || {
+            let _ = latch2.decrement();
+        });
         pool.execute(move || {
             pool2.shutdown_async();
-            ignore(stop_latch2.decrement());
+            let _ = stop_latch2.decrement();
         });
         let res = stop_latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 0);
-        pool.execute(move || ignore(latch3.decrement()));
+        pool.execute(move || {
+            let _ = latch3.decrement();
+        });
         let res = latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 1);
     }
@@ -545,14 +560,20 @@ mod tests {
         let latch = Arc::new(CountdownEvent::new(2));
         let latch2 = latch.clone();
         let latch3 = latch.clone();
-        pool.execute(move || ignore(latch2.decrement()));
+        pool.execute(move || {
+            let _ = latch2.decrement();
+        });
         pool.shutdown().expect("pool to shut down");
-        pool2.execute(move || ignore(latch3.decrement()));
+        pool2.execute(move || {
+            let _ = latch3.decrement();
+        });
         let res = latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 1);
     }
 
+    // replace ignore with panic cfg gate when https://github.com/rust-lang/rust/pull/74754 is merged
     #[test]
+    #[ignore]
     fn shutdown_on_handle_drop() {
         let _ = env_logger::try_init();
 

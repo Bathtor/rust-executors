@@ -31,7 +31,6 @@ pub mod run_now;
 pub mod threadpool_executor;
 mod timeconstants;
 
-use crate::common::ignore;
 pub use crate::common::{CanExecute, Executor};
 
 #[cfg(any(feature = "cb-channel-exec", feature = "workstealing-exec"))]

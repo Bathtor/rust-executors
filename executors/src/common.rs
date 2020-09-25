@@ -106,33 +106,18 @@ pub trait Executor: CanExecute + Clone + Send {
     fn shutdown_borrowed(&self) -> Result<(), String>;
 }
 
-/// A simple method to explicitly throw away return parameters.
-///
-/// # Examples
-///
-/// Ignoring a `Result`.
-///
-/// ```ignore
-/// use executors::common::*;
-/// let res: Result<(), String> = Ok(());
-/// ignore(res);
-/// ```
-#[inline(always)]
-pub(crate) fn ignore<V>(_: V) -> () {
-    ()
-}
-
-/// A trait to log errors when ignoring results.
-///
-/// # Examples
-///
-/// Log to warn when ignoring a `Result`
-///
-/// ```ignore
-/// use executors::common::*;
-/// let res: Result<(), String> = Err(String::from("Test error please ignore."));
-/// res.log_warn("Result was an error");
-/// ```
+// A trait to log errors when ignoring results.
+//
+// # Examples
+//
+// Log to warn when ignoring a `Result`
+//
+// ```
+// use executors::common::*;
+// let res: Result<(), String> = Err(String::from("Test error please ignore."));
+// res.log_warn("Result was an error");
+// ```
+// NOTE: Don't generate docs for this, so the test is never run
 pub(crate) trait LogErrors {
     fn log_error(self, msg: &str);
     fn log_warn(self, msg: &str);
@@ -142,56 +127,15 @@ pub(crate) trait LogErrors {
 
 impl<V, E: Debug> LogErrors for Result<V, E> {
     fn log_error(self, msg: &str) {
-        ignore(self.map_err(|e| error!("{}: {:?}", msg, e)));
+        let _ = self.map_err(|e| error!("{}: {:?}", msg, e));
     }
     fn log_warn(self, msg: &str) {
-        ignore(self.map_err(|e| warn!("{}: {:?}", msg, e)));
+        let _ = self.map_err(|e| warn!("{}: {:?}", msg, e));
     }
     fn log_info(self, msg: &str) {
-        ignore(self.map_err(|e| info!("{}: {:?}", msg, e)));
+        let _ = self.map_err(|e| info!("{}: {:?}", msg, e));
     }
     fn log_debug(self, msg: &str) {
-        ignore(self.map_err(|e| debug!("{}: {:?}", msg, e)));
-    }
-}
-
-//impl<V, E: Display> LogErrors for Result<V, E> {
-//    fn log_error(self, msg: &str) {
-//        ignore(self.map_err(|e| error!("{}: {:?}", msg, e)));
-//    }
-//    fn log_warn(self, msg: &str) {
-//        ignore(self.map_err(|e| warn!("{}: {:?}", msg, e)));
-//    }
-//    fn log_info(self, msg: &str) {
-//        ignore(self.map_err(|e| info!("{}: {:?}", msg, e)));
-//    }
-//    fn log_debug(self, msg: &str) {
-//        ignore(self.map_err(|e| debug!("{}: {:?}", msg, e)));
-//    }
-//}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ignore_primitives() {
-        assert_eq!(ignore(2 + 2), ());
-    }
-
-    struct SomeStruct {
-        _a: u32,
-        _b: f64,
-        _c: bool,
-    }
-
-    #[test]
-    fn ignore_objects() {
-        let v = SomeStruct {
-            _a: 1,
-            _b: 2.0,
-            _c: true,
-        };
-        assert_eq!(ignore(v), ());
+        let _ = self.map_err(|e| debug!("{}: {:?}", msg, e));
     }
 }

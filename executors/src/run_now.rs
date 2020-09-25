@@ -146,8 +146,12 @@ mod tests {
         let exec = RunNowExecutor::new();
         let latch2 = latch.clone();
         let latch3 = latch.clone();
-        exec.execute(move || ignore(latch2.decrement()));
-        exec.execute(move || ignore(latch3.decrement()));
+        exec.execute(move || {
+            let _ = latch2.decrement();
+        });
+        exec.execute(move || {
+            let _ = latch3.decrement();
+        });
         let res = latch.wait_timeout(Duration::from_secs(5));
         assert_eq!(res, 0);
     }
@@ -163,14 +167,18 @@ mod tests {
         let latch3 = latch.clone();
         let stop_latch = Arc::new(CountdownEvent::new(1));
         let stop_latch2 = stop_latch.clone();
-        exec.execute(move || ignore(latch2.decrement()));
+        exec.execute(move || {
+            let _ = latch2.decrement();
+        });
         exec.execute(move || {
             exec2.shutdown_async();
-            ignore(stop_latch2.decrement());
+            let _ = stop_latch2.decrement();
         });
         let res = stop_latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 0);
-        exec.execute(move || ignore(latch3.decrement()));
+        exec.execute(move || {
+            let _ = latch3.decrement();
+        });
         let res = latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 1);
     }
@@ -184,9 +192,13 @@ mod tests {
         let latch = Arc::new(CountdownEvent::new(2));
         let latch2 = latch.clone();
         let latch3 = latch.clone();
-        exec.execute(move || ignore(latch2.decrement()));
+        exec.execute(move || {
+            let _ = latch2.decrement();
+        });
         exec.shutdown().expect("pool to shut down");
-        exec2.execute(move || ignore(latch3.decrement()));
+        exec2.execute(move || {
+            let _ = latch3.decrement();
+        });
         let res = latch.wait_timeout(Duration::from_secs(1));
         assert_eq!(res, 1);
     }
