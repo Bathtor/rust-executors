@@ -5,6 +5,7 @@ A library with high-performace task executors for Rust.
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Bathtor/rust-executors)
 [![Cargo](https://img.shields.io/crates/v/executors.svg)](https://crates.io/crates/executors)
 [![Documentation](https://docs.rs/executors/badge.svg)](https://docs.rs/executors)
+[![Codecov](https://codecov.io/gh/Bathtor/rust-executors/branch/master/graph/badge.svg)](https://codecov.io/gh/Bathtor/rust-executors)
 [![Build Status](https://travis-ci.org/Bathtor/rust-executors.svg?branch=master)](https://travis-ci.org/Bathtor/rust-executors)
 
 ## Usage
