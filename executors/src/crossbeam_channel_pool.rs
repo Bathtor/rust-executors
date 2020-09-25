@@ -44,6 +44,7 @@
 //! }
 //!
 //! assert_eq!(rx.iter().take(n_jobs).fold(0, |a, b| a + b), 8);
+//! # pool.shutdown().expect("shutdown");
 //! ```
 
 use super::*;

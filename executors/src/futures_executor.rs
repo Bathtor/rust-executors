@@ -37,6 +37,7 @@ pub trait FuturesExecutor: Executor + Sync + 'static {
     /// let handle = executor.spawn(async move { 2*2 });
     /// let result = block_on(handle).expect("result");
     /// assert_eq!(4, result);
+    /// # executor.shutdown().expect("shutdown");
     /// ```
     fn spawn<R: Send + 'static>(
         &self,
