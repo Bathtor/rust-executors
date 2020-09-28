@@ -16,7 +16,7 @@ categories = ["concurrency", "asynchronous"]
 license = "MIT"
 
 [features]
-default = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-timed-fairness", "defaults"]
+default = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-timed-fairness", "defaults", "numa-aware"]
 
 threadpool-exec = ["threadpool"]
 cb-channel-exec = ["crossbeam-channel", "async-task"]
@@ -31,6 +31,8 @@ ws-timed-fairness = [] #["time"]
 ws-no-park = []
 
 thread-pinning = ["core_affinity"]
+# This requires the hwloc C library to be installed on your system
+numa-aware = ["hwloc2", "thread-pinning"]
 
 
 [dependencies]
@@ -44,8 +46,8 @@ crossbeam-deque 	= {version = "0.7", optional = true}
 rand 				= {version = "0.7", optional = true}
 num_cpus 			= {version = "1.12", optional = true}
 core_affinity 		= {version = "0.5", optional = true}
-#futures 			= {version = "0.3", optional = true}
 async-task 			= {version = "3.0", optional = true}
+hwloc2 				= {version = "2.2", optional = true}
 
 [dev-dependencies]
 env_logger 			= "0.7"

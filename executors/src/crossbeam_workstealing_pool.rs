@@ -261,9 +261,9 @@ where
             let mut guard = pool.inner.core.lock().unwrap();
             let cores = core_affinity::get_core_ids().expect("core ids");
             let num_pinned = cores.len().min(threads);
-            for i in 0..num_pinned {
+            for core in cores.iter().take(num_pinned) {
                 pool.inner
-                    .spawn_worker_pinned(&mut guard, pool.inner.clone(), None, cores[i]);
+                    .spawn_worker_pinned(&mut guard, pool.inner.clone(), None, *core);
             }
             if num_pinned < threads {
                 let num_unpinned = threads - num_pinned;

@@ -25,6 +25,8 @@ pub mod common;
 pub mod crossbeam_channel_pool;
 #[cfg(feature = "workstealing-exec")]
 pub mod crossbeam_workstealing_pool;
+#[cfg(feature = "numa-aware")]
+mod numa_utils;
 pub mod parker;
 pub mod run_now;
 #[cfg(feature = "threadpool-exec")]

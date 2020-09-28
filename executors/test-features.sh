@@ -21,3 +21,8 @@ echo "%%%%%% Testing feature thread-pinning %%%%%%"
 cargo clippy --features thread-pinning
 cargo test --features thread-pinning -- "$@"
 echo "%%%%%% Finished testing feature thread-pinning %%%%%%"
+
+echo "%%%%%% Testing feature numa-aware %%%%%%"
+cargo clippy --features numa-aware
+cargo test --features numa-aware -- "$@"
+echo "%%%%%% Finished testing feature numa-aware %%%%%%"
