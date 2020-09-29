@@ -215,6 +215,14 @@ mod tests {
         assert_eq!(1, pud.distance(core2, core1));
     }
 
+    #[test]
+    fn test_empty_pu_distance() {
+        let mat: Vec<Vec<i32>> = Vec::new();
+        let pud: ProcessingUnitDistance = mat.into_iter().collect();
+        let pud2 = ProcessingUnitDistance::empty();
+        assert_eq!(pud, pud2);
+    }
+
     /*
      * Unfinished. Continue this once the hwloc library is more stable
      */
