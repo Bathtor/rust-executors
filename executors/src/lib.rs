@@ -5,7 +5,7 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![doc(html_root_url = "https://docs.rs/executors/0.7.0")]
+#![doc(html_root_url = "https://docs.rs/executors/0.8.0")]
 #![deny(missing_docs)]
 #![allow(unused_parens)]
 #![allow(clippy::unused_unit)]
@@ -26,7 +26,7 @@ pub mod crossbeam_channel_pool;
 #[cfg(feature = "workstealing-exec")]
 pub mod crossbeam_workstealing_pool;
 #[cfg(feature = "numa-aware")]
-mod numa_utils;
+pub mod numa_utils;
 pub mod parker;
 pub mod run_now;
 #[cfg(feature = "threadpool-exec")]

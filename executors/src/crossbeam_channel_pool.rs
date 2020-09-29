@@ -117,8 +117,8 @@ impl ThreadPool {
         {
             let cores = core_affinity::get_core_ids().expect("core ids");
             let num_pinned = cores.len().min(threads);
-            for i in 0..num_pinned {
-                spawn_worker_pinned(pool.core.clone(), cores[i]);
+            for core in cores.into_iter().take(num_pinned) {
+                spawn_worker_pinned(pool.core.clone(), core);
             }
             if num_pinned < threads {
                 let num_unpinned = threads - num_pinned;
@@ -147,12 +147,12 @@ impl ThreadPool {
         let pool = ThreadPool {
             core: Arc::new(Mutex::new(ThreadPoolCore {
                 sender: tx.clone(),
-                receiver: rx.clone(),
+                receiver: rx,
                 shutdown: shutdown.clone(),
                 threads: total_threads,
                 ids: 0,
             })),
-            sender: tx.clone(),
+            sender: tx,
             threads: total_threads,
             shutdown,
         };
@@ -281,7 +281,7 @@ fn spawn_worker_pinned(core: Arc<Mutex<ThreadPoolCore>>, core_id: core_affinity:
         let mut guard = core.lock().unwrap();
         guard.new_worker_id()
     };
-    let mut worker = ThreadPoolWorker::new(id, core.clone());
+    let mut worker = ThreadPoolWorker::new(id, core);
     thread::Builder::new()
         .name("cb-channel-pool-worker".to_string())
         .spawn(move || {

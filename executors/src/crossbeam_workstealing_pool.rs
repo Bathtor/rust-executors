@@ -66,8 +66,14 @@
 
 use super::*;
 use crate::futures_executor::FuturesExecutor;
+#[cfg(feature = "numa-aware")]
+use crate::numa_utils::{equidistance, ProcessingUnitDistance};
 use crate::parker;
-use crate::parker::{DynParker, ParkResult, Parker};
+#[cfg(not(feature = "ws-no-park"))]
+use crate::parker::ParkResult;
+use crate::parker::{DynParker, Parker};
+#[cfg(feature = "thread-pinning")]
+use core_affinity::CoreId;
 use crossbeam_channel as channel;
 use crossbeam_deque as deque;
 use crossbeam_utils::Backoff;
@@ -194,6 +200,8 @@ where
     threads: usize,
     shutdown: AtomicBool,
     parker: P,
+    #[cfg(feature = "numa-aware")]
+    pu_distance: ProcessingUnitDistance,
 }
 
 #[derive(Debug)]
@@ -212,8 +220,8 @@ where
     ///
     /// # Panics
     ///
-    /// This function will panic if `threads` is 0.
-    /// It will also panic if `threads` is larger than the `ThreadData::MAX_THREADS` value of the provided `parker`.
+    /// - This function will panic if `threads` is 0.
+    /// - It will also panic if `threads` is larger than the `ThreadData::MAX_THREADS` value of the provided `parker`.
     ///
     /// # Core Affinity
     ///
@@ -238,12 +246,19 @@ where
             assert!(threads <= max);
         }
         let core = ThreadPoolCore::new();
+        #[cfg(feature = "numa-aware")]
+        let pu_distance = {
+            let num_pus = core_affinity::get_core_ids().expect("CoreIds").len(); // this should work, if not we'd fail below anyway
+            ProcessingUnitDistance::from_function(num_pus, equidistance)
+        };
         let inner = ThreadPoolInner {
             core: Mutex::new(core),
             global_sender: deque::Injector::new(),
             threads,
             shutdown: AtomicBool::new(false),
             parker,
+            #[cfg(feature = "numa-aware")]
+            pu_distance,
         };
         let pool = ThreadPool {
             inner: Arc::new(inner),
@@ -283,12 +298,67 @@ where
     ///
     /// # Panics
     ///
-    /// This function will panic if `cores.len() + floating` is 0.
+    /// - This function will panic if `cores.len() + floating` is 0.
+    /// - This function will panic if `cores.len() + floating` is greater than `parker.max_threads()`.
+    /// - This function will panic if no core ids can be accessed.
     #[cfg(feature = "thread-pinning")]
-    pub fn with_affinity(
-        cores: &[core_affinity::CoreId],
+    pub fn with_affinity(cores: &[CoreId], floating: usize, parker: P) -> ThreadPool<P> {
+        let total_threads = cores.len() + floating;
+        assert!(total_threads > 0);
+        if let Some(max) = parker.max_threads() {
+            assert!(total_threads <= max);
+        }
+        let core = ThreadPoolCore::new();
+        #[cfg(feature = "numa-aware")]
+        let pu_distance = {
+            let num_pus = core_affinity::get_core_ids().expect("CoreIds").len(); // this should work if cores is supplied
+            ProcessingUnitDistance::from_function(num_pus, equidistance)
+        };
+        let inner = ThreadPoolInner {
+            core: Mutex::new(core),
+            global_sender: deque::Injector::new(),
+            threads: total_threads,
+            shutdown: AtomicBool::new(false),
+            parker,
+            #[cfg(feature = "numa-aware")]
+            pu_distance,
+        };
+        let pool = ThreadPool {
+            inner: Arc::new(inner),
+        };
+        {
+            let mut guard = pool.inner.core.lock().unwrap();
+            cores.iter().for_each(|core_id| {
+                pool.inner
+                    .spawn_worker_pinned(&mut guard, pool.inner.clone(), None, *core_id);
+            });
+            for _ in 0..floating {
+                pool.inner
+                    .spawn_worker(&mut guard, pool.inner.clone(), None);
+            }
+        }
+        pool
+    }
+
+    /// Creates a new thread pool capable of executing `threads` number of jobs concurrently with a particular core affinity.
+    ///
+    /// For each core id in the `core` slice, it will generate a single thread pinned to that id.
+    /// Additionally, it will create `floating` number of unpinned threads.
+    ///
+    /// Internally the stealers will use the provided PU distance matrix to prioritise stealing from
+    /// queues that are "closer" by, in order to try and reduce memory movement across caches and NUMA nodes.
+    ///
+    /// # Panics
+    ///
+    /// - This function will panic if `cores.len() + floating` is 0.
+    /// - This function will panic if `cores.len() + floating` is greater than `parker.max_threads()`.
+    /// - This function will panic if no core ids can be accessed.
+    #[cfg(feature = "numa-aware")]
+    pub fn with_numa_affinity(
+        cores: &[CoreId],
         floating: usize,
         parker: P,
+        pu_distance: ProcessingUnitDistance,
     ) -> ThreadPool<P> {
         let total_threads = cores.len() + floating;
         assert!(total_threads > 0);
@@ -302,6 +372,7 @@ where
             threads: total_threads,
             shutdown: AtomicBool::new(false),
             parker,
+            pu_distance,
         };
         let pool = ThreadPool {
             inner: Arc::new(inner),
@@ -469,6 +540,9 @@ where
         thread::Builder::new()
             .name(format!("cb-ws-pool-worker-{}", id))
             .spawn(move || {
+                #[cfg(feature = "thread-pinning")]
+                let mut worker = ThreadPoolWorker::new(id, rx_control, &inner, None);
+                #[cfg(not(feature = "thread-pinning"))]
                 let mut worker = ThreadPoolWorker::new(id, rx_control, &inner);
                 drop(inner);
                 worker.run()
@@ -482,7 +556,7 @@ where
         guard: &mut std::sync::MutexGuard<'_, ThreadPoolCore>,
         inner: Arc<Self>,
         old_id: Option<usize>,
-        core_id: core_affinity::CoreId,
+        core_id: CoreId,
     ) {
         //let guard = self.core.lock().unwrap();
         let id = old_id.unwrap_or_else(|| guard.new_worker_id());
@@ -497,7 +571,7 @@ where
             .name(format!("cb-ws-pool-worker-{}", id))
             .spawn(move || {
                 core_affinity::set_for_current(core_id);
-                let mut worker = ThreadPoolWorker::new(id, rx_control, &inner);
+                let mut worker = ThreadPoolWorker::new(id, rx_control, &inner, Some(core_id));
                 drop(inner);
                 worker.run()
             })
@@ -604,8 +678,10 @@ where
     id: usize,
     core: Weak<ThreadPoolInner<P>>,
     control: channel::Receiver<ControlMsg>,
-    stealers: Vec<JobStealer>,
+    stealers: Vec<(i32, JobStealer)>,
     random: ThreadRng,
+    #[cfg(feature = "thread-pinning")]
+    core_id: Option<CoreId>,
 }
 
 impl<P> ThreadPoolWorker<P>
@@ -616,6 +692,7 @@ where
         id: usize,
         control: channel::Receiver<ControlMsg>,
         core: &Arc<ThreadPoolInner<P>>,
+        #[cfg(feature = "thread-pinning")] core_id: Option<CoreId>,
     ) -> ThreadPoolWorker<P> {
         ThreadPoolWorker {
             id,
@@ -623,6 +700,8 @@ where
             control,
             stealers: Vec::new(),
             random: rand::thread_rng(),
+            #[cfg(feature = "thread-pinning")]
+            core_id,
         }
     }
 
@@ -632,26 +711,39 @@ where
     }
 
     #[inline(always)]
+    #[cfg(feature = "ws-no-park")]
+    fn abort_sleep(
+        &self,
+        backoff: &Backoff,
+        snoozing: &mut bool,
+        failed_steal_attempts: &mut i32,
+    ) -> () {
+        if *snoozing {
+            backoff.reset();
+            *snoozing = false;
+        }
+        *failed_steal_attempts = 0;
+    }
+
+    #[inline(always)]
+    #[cfg(not(feature = "ws-no-park"))]
     fn abort_sleep(
         &self,
         core: &Arc<ThreadPoolInner<P>>,
         backoff: &Backoff,
         snoozing: &mut bool,
         parking: &mut bool,
+        failed_steal_attempts: &mut i32,
     ) -> () {
         if *parking {
-            #[cfg(feature = "ws-no-park")]
-            unreachable!("parking should never be true in ws-no-park!");
-            #[cfg(not(feature = "ws-no-park"))]
-            {
-                core.parker.abort_park(*self.id());
-                *parking = false;
-            }
+            core.parker.abort_park(*self.id());
+            *parking = false;
         }
         if *snoozing {
             backoff.reset();
             *snoozing = false;
         }
+        *failed_steal_attempts = 0;
     }
 
     #[inline(always)]
@@ -673,6 +765,10 @@ where
         set_local_executor(ThreadLocalExecute);
         let core = self.core.upgrade().expect("Core shut down already!");
         //info!("Setting up new worker {}. strong={}, weak={}", self.id(), Arc::strong_count(&core), Arc::weak_count(&core));
+
+        #[cfg(feature = "numa-aware")]
+        let local_stealer = JobStealer::new(local_stealer_raw, self.id, self.core_id);
+        #[cfg(not(feature = "numa-aware"))]
         let local_stealer = JobStealer::new(local_stealer_raw, self.id);
         self.register_stealer(&core, local_stealer);
         core.parker.init(*self.id());
@@ -680,7 +776,9 @@ where
         let sentinel = Sentinel::new(self.core.clone(), self.id);
         let backoff = Backoff::new();
         let mut snoozing = false;
+        #[cfg(not(feature = "ws-no-park"))]
         let mut parking = false;
+        let mut failed_steal_attempts: i32 = 0;
         let mut stop_latch: Option<Arc<CountdownEvent>>;
         'main: loop {
             //info!("Worker {} starting main loop", self.id());
@@ -728,8 +826,21 @@ where
                 match self.control.try_recv() {
                     Ok(msg) => match msg {
                         ControlMsg::Stealers(l) => {
+                            #[cfg(feature = "numa-aware")]
+                            self.update_stealers(&core, l);
+                            #[cfg(not(feature = "numa-aware"))]
                             self.update_stealers(l);
-                            self.abort_sleep(&core, &backoff, &mut snoozing, &mut parking);
+
+                            #[cfg(feature = "ws-no-park")]
+                            self.abort_sleep(&backoff, &mut snoozing, &mut failed_steal_attempts);
+                            #[cfg(not(feature = "ws-no-park"))]
+                            self.abort_sleep(
+                                &core,
+                                &backoff,
+                                &mut snoozing,
+                                &mut parking,
+                                &mut failed_steal_attempts,
+                            );
                         }
                         ControlMsg::Stop(latch) => {
                             stop_latch = Some(latch);
@@ -755,7 +866,16 @@ where
             });
             if let deque::Steal::Success(msg) = glob_res {
                 msg.run();
-                self.abort_sleep(&core, &backoff, &mut snoozing, &mut parking);
+                #[cfg(feature = "ws-no-park")]
+                self.abort_sleep(&backoff, &mut snoozing, &mut failed_steal_attempts);
+                #[cfg(not(feature = "ws-no-park"))]
+                self.abort_sleep(
+                    &core,
+                    &backoff,
+                    &mut snoozing,
+                    &mut parking,
+                    &mut failed_steal_attempts,
+                );
                 continue 'main;
             }
             // only go on if there was no work left on the local queue
@@ -765,34 +885,56 @@ where
                 continue 'main;
             }
             // try to steal something!
-            for stealer in self.stealers.iter() {
+            for (_weight, stealer) in self
+                .stealers
+                .iter()
+                .take_while(|(weight, _)| *weight <= failed_steal_attempts)
+            {
                 if let deque::Steal::Success(msg) = stealer.steal() {
                     msg.run();
-                    self.abort_sleep(&core, &backoff, &mut snoozing, &mut parking);
+                    #[cfg(feature = "ws-no-park")]
+                    self.abort_sleep(&backoff, &mut snoozing, &mut failed_steal_attempts);
+                    #[cfg(not(feature = "ws-no-park"))]
+                    self.abort_sleep(
+                        &core,
+                        &backoff,
+                        &mut snoozing,
+                        &mut parking,
+                        &mut failed_steal_attempts,
+                    );
                     continue 'main; // only steal once before checking locally again
                 }
             }
+            failed_steal_attempts += 1;
             snoozing = true;
-            if parking {
-                #[cfg(feature = "ws-no-park")]
-                unreachable!("parking should never be true in ws-no-park!");
-                #[cfg(not(feature = "ws-no-park"))]
-                {
-                    let parker = core.parker.clone();
-                    drop(core);
-                    match parker.park(*self.id()) {
-                        ParkResult::Retry => (), // just start over
-                        ParkResult::Abort | ParkResult::Woken => {
-                            self.stop_sleep(&backoff, &mut snoozing, &mut parking);
-                        }
-                    }
-                }
-            } else if backoff.is_completed() && cfg!(not(feature = "ws-no-park")) {
-                core.parker.prepare_park(*self.id());
-                parking = true;
-            } else {
+            #[cfg(feature = "ws-no-park")]
+            {
                 drop(core);
                 backoff.snooze();
+            }
+            #[cfg(not(feature = "ws-no-park"))]
+            {
+                if parking {
+                    #[cfg(feature = "ws-no-park")]
+                    unreachable!("parking should never be true in ws-no-park!");
+                    #[cfg(not(feature = "ws-no-park"))]
+                    {
+                        let parker = core.parker.clone();
+                        drop(core);
+                        match parker.park(*self.id()) {
+                            ParkResult::Retry => (), // just start over
+                            ParkResult::Abort | ParkResult::Woken => {
+                                self.stop_sleep(&backoff, &mut snoozing, &mut parking);
+                            }
+                        }
+                    }
+                } else if backoff.is_completed() {
+                    core.parker.prepare_park(*self.id());
+                    parking = true;
+                } else {
+                    drop(core);
+                    backoff.snooze();
+                }
             }
             // aaaaand starting over with 'local
         }
@@ -820,34 +962,65 @@ where
         guard.drop_worker(self.id);
     }
 
-    fn update_stealers(&mut self, mut v: Vec<JobStealer>) {
-        v.shuffle(&mut self.random);
-        self.stealers = v;
+    #[cfg(not(feature = "numa-aware"))]
+    fn update_stealers(&mut self, v: Vec<JobStealer>) {
+        let mut weighted: Vec<(i32, JobStealer)> =
+            v.into_iter().map(|stealer| (0, stealer)).collect();
+        weighted.shuffle(&mut self.random);
+        self.stealers = weighted;
+    }
+
+    #[cfg(feature = "numa-aware")]
+    fn update_stealers(&mut self, _core: &ThreadPoolInner<P>, v: Vec<JobStealer>) {
+        let mut weighted: Vec<(i32, JobStealer)> = if let Some(my_id) = self.core_id {
+            let distances = &_core.pu_distance;
+            v.into_iter()
+                .map(|stealer| {
+                    let weight = if let Some(stealer_id) = stealer.core_id() {
+                        distances.distance(my_id, *stealer_id)
+                    } else {
+                        std::i32::MIN
+                    };
+                    (weight, stealer)
+                })
+                .collect()
+        } else {
+            v.into_iter().map(|stealer| (0, stealer)).collect()
+        };
+        weighted.shuffle(&mut self.random);
+        weighted.sort_unstable_by_key(|(weight, _stealer)| *weight);
+        self.stealers = weighted;
     }
 }
-
-// trait FnBox {
-//     fn call_box(self: Box<Self>);
-// }
-
-// impl<F: FnOnce()> FnBox for F {
-//     fn call_box(self: Box<F>) {
-//         (*self)()
-//     }
-// }
 
 #[derive(Clone)]
 struct JobStealer {
     inner: deque::Stealer<Job>,
     id: usize,
+    #[cfg(feature = "numa-aware")]
+    core_id: Option<CoreId>,
 }
 
 impl JobStealer {
-    fn new(stealer: deque::Stealer<Job>, id: usize) -> JobStealer {
-        JobStealer { inner: stealer, id }
+    fn new(
+        stealer: deque::Stealer<Job>,
+        id: usize,
+        #[cfg(feature = "numa-aware")] core_id: Option<CoreId>,
+    ) -> JobStealer {
+        JobStealer {
+            inner: stealer,
+            id,
+            #[cfg(feature = "numa-aware")]
+            core_id,
+        }
     }
     fn id(&self) -> usize {
         self.id
+    }
+
+    #[cfg(feature = "numa-aware")]
+    fn core_id(&self) -> &Option<CoreId> {
+        &self.core_id
     }
 }
 
@@ -1018,6 +1191,17 @@ mod tests {
         // travis doesn't have enough cores for this
         //let exec = ThreadPool::with_affinity(&cores[0..4], 4, parker::small());
         let exec = ThreadPool::with_affinity(&cores[0..1], 1, parker::small());
+        crate::tests::test_custom(exec, LABEL);
+    }
+
+    #[cfg(feature = "numa-aware")]
+    #[test]
+    fn test_custom_numa_affinity() {
+        let cores = core_affinity::get_core_ids().expect("core ids");
+        // travis doesn't have enough cores for this
+        //let exec = ThreadPool::with_affinity(&cores[0..4], 4, parker::small());
+        let distances = ProcessingUnitDistance::from_function(cores.len(), equidistance);
+        let exec = ThreadPool::with_numa_affinity(&cores[0..1], 1, parker::small(), distances);
         crate::tests::test_custom(exec, LABEL);
     }
 
