@@ -905,7 +905,7 @@ where
                     continue 'main; // only steal once before checking locally again
                 }
             }
-            failed_steal_attempts += 1;
+            failed_steal_attempts = failed_steal_attempts.saturating_add(1);
             snoozing = true;
             #[cfg(feature = "ws-no-park")]
             {
