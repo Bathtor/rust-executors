@@ -704,7 +704,7 @@ impl ThreadData for DynamicThreadData {
     }
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 struct BitSetEmpty;
 const BIT_SET_EMPTY: BitSetEmpty = BitSetEmpty {};
 
@@ -773,5 +773,54 @@ impl AtomicBitSet for AtomicU64 {
             }
             unreachable!("Bitset was empty despite empty check!");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parker_printing() {
+        {
+            let p = small();
+            println!("Small Parker: {:?}", p);
+            let dyn_p = p.dynamic();
+            println!("Small Parker (Dynamic): {:?}", dyn_p);
+        }
+        {
+            let p = large();
+            println!("Large Parker: {:?}", p);
+            let dyn_p = p.dynamic();
+            println!("Large Parker (Dynamic): {:?}", dyn_p);
+        }
+        {
+            let p = dynamic();
+            println!("Dynamic Parker: {:?}", p);
+            let dyn_p = p.dynamic();
+            println!("Dynamic Parker (Dynamic): {:?}", dyn_p);
+        }
+    }
+
+    fn res_ok(v: usize) -> Result<usize, BitSetEmpty> {
+        Ok(v)
+    }
+    fn res_err() -> Result<usize, BitSetEmpty> {
+        Err(BIT_SET_EMPTY)
+    }
+
+    #[test]
+    fn test_bitset() {
+        let data = AtomicU32::new(0);
+        let bs: &dyn AtomicBitSet = &data;
+        assert_eq!(res_err(), bs.get_lowest());
+        bs.set_at(1);
+        assert_eq!(res_ok(1), bs.get_lowest());
+        bs.set_at(5);
+        assert_eq!(res_ok(1), bs.get_lowest());
+        bs.unset_at(1);
+        assert_eq!(res_ok(5), bs.get_lowest());
+        bs.unset_at(5);
+        assert_eq!(res_err(), bs.get_lowest());
     }
 }

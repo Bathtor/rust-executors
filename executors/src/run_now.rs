@@ -130,13 +130,11 @@ mod tests {
         crate::tests::test_small_defaults::<RunNowExecutor>(LABEL);
     }
 
-    // Will stack overflow.
-    // #[test]
-    // #[should_panic]
-    // fn test_local() {
-    //     let exec = RunNowExecutor::new();
-    //     crate::tests::test_local(exec, LABEL);
-    // }
+    #[test]
+    fn test_local() {
+        let exec = RunNowExecutor::new();
+        crate::tests::test_small_local(exec, LABEL);
+    }
 
     #[test]
     fn run_tasks() {

@@ -57,7 +57,7 @@ pub(crate) mod tests {
     pub const N_DEPTH_SMALL: usize = 1024;
     pub const N_DEPTH: usize = 8192; // run_now can't do this, but it's a good test for the others
     pub const N_WIDTH: usize = 128;
-    pub const N_SLEEP_ROUNDS: usize = 10;
+    pub const N_SLEEP_ROUNDS: usize = 11;
 
     pub fn test_debug<E>(exec: &E, label: &str)
     where
@@ -132,9 +132,10 @@ pub(crate) mod tests {
     {
         info!("Running sleepy test for {}", label);
         let latch = Arc::new(CountdownEvent::new(N_SLEEP_ROUNDS * N_WIDTH));
-        for _round in 0..N_SLEEP_ROUNDS {
+        for round in 1..=N_SLEEP_ROUNDS {
             // let threads go to sleep
-            std::thread::sleep(Duration::from_secs(1));
+            let sleep_time = 1u64 << round;
+            std::thread::sleep(Duration::from_millis(sleep_time));
             for _ in 0..N_WIDTH {
                 let latch2 = latch.clone();
                 pool.execute(move || {
@@ -161,6 +162,31 @@ pub(crate) mod tests {
             let failed2 = failed.clone();
             pool.execute(move || {
                 do_step_local(latch2, failed2, N_DEPTH);
+            });
+        }
+        let res = latch.wait_timeout(Duration::from_secs(30));
+        assert_eq!(res, 0);
+        assert!(
+            !failed.load(Ordering::SeqCst),
+            "Executor does not support local scheduling!"
+        );
+        pool.shutdown()
+            .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
+    }
+
+    pub fn test_small_local<E>(exec: E, label: &str)
+    where
+        E: Executor + Debug + 'static,
+    {
+        let pool = exec;
+
+        let latch = Arc::new(CountdownEvent::new(N_DEPTH_SMALL * N_WIDTH));
+        let failed = Arc::new(AtomicBool::new(false));
+        for _ in 0..N_WIDTH {
+            let latch2 = latch.clone();
+            let failed2 = failed.clone();
+            pool.execute(move || {
+                do_step_local(latch2, failed2, N_DEPTH_SMALL);
             });
         }
         let res = latch.wait_timeout(Duration::from_secs(30));

@@ -915,17 +915,12 @@ where
             #[cfg(not(feature = "ws-no-park"))]
             {
                 if parking {
-                    #[cfg(feature = "ws-no-park")]
-                    unreachable!("parking should never be true in ws-no-park!");
-                    #[cfg(not(feature = "ws-no-park"))]
-                    {
-                        let parker = core.parker.clone();
-                        drop(core);
-                        match parker.park(*self.id()) {
-                            ParkResult::Retry => (), // just start over
-                            ParkResult::Abort | ParkResult::Woken => {
-                                self.stop_sleep(&backoff, &mut snoozing, &mut parking);
-                            }
+                    let parker = core.parker.clone();
+                    drop(core);
+                    match parker.park(*self.id()) {
+                        ParkResult::Retry => (), // just start over
+                        ParkResult::Abort | ParkResult::Woken => {
+                            self.stop_sleep(&backoff, &mut snoozing, &mut parking);
                         }
                     }
                 } else if backoff.is_completed() {
@@ -1155,26 +1150,50 @@ mod tests {
     }
 
     #[test]
-    fn test_sleepy() {
+    fn test_sleepy_small() {
         let exec = ThreadPool::new(4, parker::small());
         crate::tests::test_sleepy(exec, LABEL);
     }
 
     #[test]
+    fn test_sleepy_large() {
+        let exec = ThreadPool::new(36, parker::large());
+        crate::tests::test_sleepy(exec, LABEL);
+    }
+
+    #[test]
+    fn test_sleepy_dyn() {
+        let exec = ThreadPool::new(72, parker::dynamic());
+        crate::tests::test_sleepy(exec, LABEL);
+    }
+
+    #[test]
     fn test_custom_small() {
-        let exec = ThreadPool::new(4, parker::small());
+        let exec = small_pool(4);
         crate::tests::test_custom(exec, LABEL);
     }
 
     #[test]
     fn test_custom_large() {
-        let exec = ThreadPool::new(36, parker::large());
+        let exec = large_pool(36);
         crate::tests::test_custom(exec, LABEL);
     }
 
     #[test]
     fn test_custom_dyn() {
-        let exec = ThreadPool::new(72, parker::dynamic());
+        let exec = dyn_pool(72);
+        crate::tests::test_custom(exec, LABEL);
+    }
+
+    #[test]
+    fn test_custom_auto_large() {
+        let exec = pool_with_auto_parker(36);
+        crate::tests::test_custom(exec, LABEL);
+    }
+
+    #[test]
+    fn test_custom_auto_dyn() {
+        let exec = pool_with_auto_parker(72);
         crate::tests::test_custom(exec, LABEL);
     }
 

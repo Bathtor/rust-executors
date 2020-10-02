@@ -364,11 +364,8 @@ impl ThreadPoolWorker {
             recv,
         }
     }
-    fn id(&self) -> &usize {
-        &self.id
-    }
     fn run(&mut self) {
-        debug!("CrossbeamWorker {} starting", self.id());
+        debug!("CrossbeamWorker {} starting", self.id);
         let sender = {
             let core = self.core.upgrade().expect("Core already shut down!");
             let guard = core.lock().expect("Mutex poisoned!");
@@ -390,19 +387,9 @@ impl ThreadPoolWorker {
         }
         unset_local_executor();
         sentinel.cancel();
-        debug!("CrossbeamWorker {} shutting down", self.id());
+        debug!("CrossbeamWorker {} shutting down", self.id);
     }
 }
-
-// trait FnBox {
-//     fn call_box(self: Box<Self>);
-// }
-
-// impl<F: FnOnce()> FnBox for F {
-//     fn call_box(self: Box<F>) {
-//         (*self)()
-//     }
-// }
 
 enum JobMsg {
     Job(Box<dyn FnOnce() + Send + 'static>),
@@ -472,6 +459,12 @@ mod tests {
     fn test_local() {
         let exec = ThreadPool::default();
         crate::tests::test_local(exec, LABEL);
+    }
+
+    #[test]
+    fn test_custom_large() {
+        let exec = ThreadPool::new(36);
+        crate::tests::test_custom(exec, LABEL);
     }
 
     #[cfg(feature = "thread-pinning")]
