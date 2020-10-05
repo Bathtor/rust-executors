@@ -8,10 +8,7 @@
 
 use super::*;
 use crate::stats::Stats;
-use std::default::Default;
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
+use std::{default::Default, sync::Arc, thread, time::Duration};
 use synchronoise::CountdownEvent;
 
 #[cfg(feature = "nightly")]
@@ -135,12 +132,12 @@ impl<'a, E: Executor + 'static> Experiment<'a, E> {
 
     pub fn run(&mut self) -> Stats {
         let mut stats: Stats = Stats::new();
-
+        let clock = Clock::new();
         while !stats.is_done() {
-            let startt = time::precise_time_ns();
+            let startt = clock.start();
             self.execute_run();
-            let endt = time::precise_time_ns();
-            let difft = (endt - startt) as f64;
+            let endt = clock.end();
+            let difft = clock.delta(startt, endt).as_nanos() as f64;
             stats.push(difft);
             std::thread::sleep(*self.settings.sleep_time());
         }
@@ -216,6 +213,7 @@ impl Finisher {
     fn new(latch: Arc<CountdownEvent>) -> Finisher {
         Finisher { latch }
     }
+
     fn execute(self) {
         self.latch.decrement().expect("Latch didn't decrement");
     }

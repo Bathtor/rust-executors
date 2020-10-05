@@ -8,30 +8,25 @@
 #![cfg_attr(feature = "nightly", feature(test))]
 #![allow(unused_parens)]
 #![allow(clippy::style)] // not important in the testing app
-extern crate executors;
-extern crate synchronoise;
-extern crate time;
-
-#[cfg(feature = "nightly")]
-extern crate test;
-
-#[macro_use]
-extern crate clap;
 
 pub mod experiment;
 pub mod latency_experiment;
 mod stats;
 
 use crate::stats::*;
-use clap::{App, Arg, SubCommand};
-use executors::crossbeam_channel_pool::ThreadPool as CCExecutor;
-use executors::crossbeam_workstealing_pool::ThreadPool as CWSExecutor;
-use executors::threadpool_executor::ThreadPoolExecutor as TPExecutor;
-use executors::*;
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::io::prelude::*;
-use std::path::Path;
+use clap::{value_t, App, Arg, SubCommand};
+use executors::{
+    crossbeam_channel_pool::ThreadPool as CCExecutor,
+    crossbeam_workstealing_pool::ThreadPool as CWSExecutor,
+    threadpool_executor::ThreadPoolExecutor as TPExecutor,
+    *,
+};
+use quanta::Clock;
+use std::{
+    fs::{File, OpenOptions},
+    io::prelude::*,
+    path::Path,
+};
 
 fn main() {
     let throughput = SubCommand::with_name("throughput")
@@ -257,12 +252,13 @@ fn run_throughput_experiment<E: Executor + 'static>(
     total_messages: f64,
 ) -> f64 {
     exp.prepare();
+    let clock = Clock::new();
     println!("Starting run for {}", exp.label());
-    let startt = time::precise_time_ns();
+    let startt = clock.start();
     exp.run();
-    let endt = time::precise_time_ns();
+    let endt = clock.end();
     println!("Finished run for {}", exp.label());
-    let difft = (endt - startt) as f64;
+    let difft = clock.delta(startt, endt).as_nanos() as f64;
     let diffts = difft * NS_TO_S;
     let events_per_second = total_messages / diffts;
     println!(

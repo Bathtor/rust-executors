@@ -391,7 +391,7 @@ where
         pool
     }
 
-    fn schedule_task(&self, task: async_task::Task<()>) -> () {
+    fn schedule_task(&self, task: async_task::Runnable) -> () {
         // schedule tasks always, even if the pool is already stopped, since it's unsafe to drop from the schedule function
         // this might lead to some "memory leaks" if an executor remains stopped but allocated for a long time
         LOCAL_JOB_QUEUE.with(|qo| unsafe {
@@ -506,13 +506,9 @@ where
         future: impl Future<Output = R> + 'static + Send,
     ) -> JoinHandle<R> {
         let exec = self.clone();
-        let (task, handle) = async_task::spawn(
-            future,
-            move |task| {
-                exec.schedule_task(task);
-            },
-            (),
-        );
+        let (task, handle) = async_task::spawn(future, move |task| {
+            exec.schedule_task(task);
+        });
         task.schedule();
         handle
     }
@@ -1043,7 +1039,7 @@ impl Debug for JobStealer {
 //struct Job(Box<dyn FnOnce() + Send + 'static>);
 enum Job {
     Function(Box<dyn FnOnce() + Send + 'static>),
-    Task(async_task::Task<()>),
+    Task(async_task::Runnable),
 }
 impl Job {
     fn run(self) {

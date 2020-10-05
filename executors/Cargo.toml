@@ -37,21 +37,21 @@ numa-aware = ["thread-pinning"]
 [dependencies]
 log 				= "0.4"
 synchronoise 		= "1.0"
-arr_macro 			= "0.1.2"
+arr_macro 			= "0.1"
 crossbeam-channel 	= {version = "0.4", optional = true}
-threadpool 			= {version = "1.7", optional = true}
+threadpool 			= {version = "1.8", optional = true}
 crossbeam-utils 	= {version = "0.7", optional = true}
 crossbeam-deque 	= {version = "0.7", optional = true}
 rand 				= {version = "0.7", optional = true}
-num_cpus 			= {version = "1.12", optional = true}
+num_cpus 			= {version = "1", optional = true}
 core_affinity 		= {version = "0.5", optional = true}
-async-task 			= {version = "3.0", optional = true}
+async-task 			= {version = "4.0", optional = true}
 # reintroduce one hwloc is more stable or replace if there's an alternative
 #hwloc2 				= {version = "2.2", optional = true}
 
 [dev-dependencies]
 env_logger 			= "0.7"
-version-sync 		= "0.8"
+version-sync 		= "0.9"
 criterion 			= "0.3"
 futures 			= "0.3"
 

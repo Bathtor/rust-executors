@@ -46,6 +46,7 @@ impl<'a> Statistics for &'a Vec<f64> {
     fn max(&self) -> f64 {
         self.iter().fold(std::f64::MIN, |acc, v| acc.max(*v))
     }
+
     fn min(&self) -> f64 {
         self.iter().fold(std::f64::MAX, |acc, v| acc.min(*v))
     }
@@ -112,6 +113,7 @@ impl Statistics for Stats {
     fn max(&self) -> f64 {
         self.data().max()
     }
+
     fn min(&self) -> f64 {
         self.data().min()
     }

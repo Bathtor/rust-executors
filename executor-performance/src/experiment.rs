@@ -7,9 +7,7 @@
 // except according to those terms.
 
 use super::*;
-use std::default::Default;
-use std::sync::Arc;
-use std::thread;
+use std::{default::Default, sync::Arc, thread};
 use synchronoise::CountdownEvent;
 
 #[cfg(feature = "nightly")]
@@ -219,6 +217,7 @@ impl Finisher {
     fn new(latch: Arc<CountdownEvent>) -> Finisher {
         Finisher { latch }
     }
+
     fn execute(self) {
         self.latch.decrement().expect("Latch didn't decrement");
     }

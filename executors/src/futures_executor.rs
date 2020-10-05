@@ -15,7 +15,7 @@ use super::*;
 use std::future::Future;
 
 /// A future that can be used to await the result of a spawned future
-pub type JoinHandle<R> = async_task::JoinHandle<R, ()>;
+pub type JoinHandle<R> = async_task::Task<R>;
 
 /// A trait for spawning futures on an Executor
 pub trait FuturesExecutor: Executor + Sync + 'static {
@@ -35,7 +35,7 @@ pub trait FuturesExecutor: Executor + Sync + 'static {
     /// // initialise some executor
     /// # let executor = ThreadPool::new(2);
     /// let handle = executor.spawn(async move { 2*2 });
-    /// let result = block_on(handle).expect("result");
+    /// let result = block_on(handle);
     /// assert_eq!(4, result);
     /// # executor.shutdown().expect("shutdown");
     /// ```
@@ -80,7 +80,7 @@ mod tests {
     {
         let barrier = Arc::new(AtomicBool::new(false));
         let f = just_succeed(barrier.clone());
-        exec.spawn(f);
+        exec.spawn(f).detach();
         let mut done = false;
         while !done {
             thread::sleep(Duration::from_millis(100));
@@ -123,7 +123,7 @@ mod tests {
         let barrier = Arc::new(AtomicBool::new(false));
         let (tx, rx) = channel();
         let f = wait_for_channel(rx, barrier.clone());
-        exec.spawn(f);
+        exec.spawn(f).detach();
         thread::sleep(Duration::from_millis(100));
         tx.send(()).expect("sent");
         let mut done = false;
@@ -157,6 +157,6 @@ mod tests {
         thread::sleep(Duration::from_millis(100));
         tx.send(test_string.clone()).expect("sent");
         let res = futures::executor::block_on(handle);
-        assert_eq!(res, Some(test_string))
+        assert_eq!(res, test_string)
     }
 }
