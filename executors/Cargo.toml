@@ -68,3 +68,7 @@ travis-ci = { repository = "Bathtor/rust-executors", branch = "master" }
 name = "scheduler"
 path = "benches/scheduler.rs"
 harness = false
+
+[package.metadata.docs.rs]
+
+features = ["numa-aware"]
