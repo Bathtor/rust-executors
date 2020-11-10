@@ -155,7 +155,7 @@ mod chained_spawn {
                 let rt_new = rt.clone();
                 rt.spawn(async move {
                     iter(rt_new, done_tx, n - 1);
-                });
+                }).detach();
             }
         }
 
@@ -167,7 +167,7 @@ mod chained_spawn {
                 let rt_new = rt_inner.clone();
                 rt_inner.spawn(async move {
                     iter(rt_new, done_tx, CHAINING_DEPTH);
-                });
+                }).detach();
 
                 done_rx.recv().unwrap();
             });
@@ -251,7 +251,7 @@ mod spawn_many {
                         if 1 == rem.fetch_sub(1, Relaxed) {
                             tx.send(()).unwrap();
                         }
-                    });
+                    }).detach();
                 }
 
                 let _ = rx.recv().unwrap();
@@ -359,7 +359,7 @@ mod ping_pong {
                         rt_new2.spawn(async move {
                             rx1.await.unwrap();
                             tx2.send(()).unwrap();
-                        });
+                        }).detach();
 
                         tx1.send(()).unwrap();
                         rx2.await.unwrap();
@@ -371,9 +371,9 @@ mod ping_pong {
                         // else {
                         //     println!("Pinger {} is done, but {} remaining.", i, res);
                         // }
-                    });
+                    }).detach();
                 }
-            });
+            }).detach();
 
             let res = done_rx.recv_timeout(Duration::from_millis(5000)); //.expect("should have gotten a done with 5s");
             if res.is_err() {
