@@ -811,6 +811,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn res_ok(v: usize) -> Result<usize, BitSetEmpty> {
         Ok(v)
     }
