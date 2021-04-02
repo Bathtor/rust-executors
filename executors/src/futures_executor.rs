@@ -60,8 +60,8 @@ mod tests {
     };
 
     async fn just_succeed(barrier: Arc<AtomicBool>) -> () {
-        let res = barrier.compare_and_swap(false, true, Ordering::SeqCst);
-        assert!(!res); //  i.e. assert that the old value was false
+        let res = barrier.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
+        assert!(res.is_ok());
     }
 
     #[test]
@@ -94,8 +94,8 @@ mod tests {
 
     async fn wait_for_channel(receiver: Receiver<()>, barrier: Arc<AtomicBool>) -> () {
         let _ok = receiver.await.expect("message");
-        let res = barrier.compare_and_swap(false, true, Ordering::SeqCst);
-        assert!(!res); //  i.e. assert that the old value was false
+        let res = barrier.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
+        assert!(res.is_ok());
     }
 
     // Does not implement Sync

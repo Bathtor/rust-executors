@@ -1424,16 +1424,13 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(1));
         drop(pool);
         std::thread::sleep(std::time::Duration::from_secs(1));
-        match core_weak.upgrade() {
-            Some(core) => {
-                println!(
-                    "Outstanding references: strong={}, weak={}",
-                    Arc::strong_count(&core),
-                    Arc::weak_count(&core)
-                );
-                panic!("Pool should have been dropped!");
-            }
-            None => (), // ok
+        if let Some(core) = core_weak.upgrade() {
+            println!(
+                "Outstanding references: strong={}, weak={}",
+                Arc::strong_count(&core),
+                Arc::weak_count(&core)
+            );
+            panic!("Pool should have been dropped!");
         }
     }
 }

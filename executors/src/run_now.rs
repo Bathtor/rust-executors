@@ -122,12 +122,11 @@ impl Executor for RunNowExecutor {
 
 #[cfg(test)]
 mod tests {
-    use env_logger;
 
     use super::*;
     use std::time::Duration;
 
-    const LABEL: &'static str = "Run Now";
+    const LABEL: &str = "Run Now";
 
     #[test]
     fn test_debug() {
