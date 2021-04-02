@@ -5,7 +5,7 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![doc(html_root_url = "https://docs.rs/executors/0.8.0")]
+#![doc(html_root_url = "https://docs.rs/executors/0.9.0")]
 #![deny(missing_docs)]
 #![allow(unused_parens)]
 #![allow(clippy::unused_unit)]
