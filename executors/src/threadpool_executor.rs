@@ -39,8 +39,10 @@
 //! ```
 
 use super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use threadpool::ThreadPool;
 
 /// A handle to a [threadpool_executor](threadpool_executor)
@@ -112,7 +114,11 @@ impl Executor for ThreadPoolExecutor {
     }
 
     fn shutdown_async(&self) {
-        if self.active.compare_and_swap(true, false, Ordering::SeqCst) {
+        if self
+            .active
+            .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
             debug!("Shutting down executor.");
         } else {
             warn!("Executor was already shut down!");
@@ -120,7 +126,11 @@ impl Executor for ThreadPoolExecutor {
     }
 
     fn shutdown_borrowed(&self) -> Result<(), String> {
-        if self.active.compare_and_swap(true, false, Ordering::SeqCst) {
+        if self
+            .active
+            .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
             debug!("Waiting for pool to shut down.");
             self.pool.join();
             debug!("Pool was shut down.");

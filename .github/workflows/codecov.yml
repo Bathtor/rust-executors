@@ -11,6 +11,7 @@ on:
 jobs:
   codecov-grcov:
     name: Generate code coverage
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: true
     steps:

@@ -155,7 +155,8 @@ mod chained_spawn {
                 let rt_new = rt.clone();
                 rt.spawn(async move {
                     iter(rt_new, done_tx, n - 1);
-                }).detach();
+                })
+                .detach();
             }
         }
 
@@ -165,9 +166,11 @@ mod chained_spawn {
             let done_tx = done_tx.clone();
             futures::executor::block_on(async {
                 let rt_new = rt_inner.clone();
-                rt_inner.spawn(async move {
-                    iter(rt_new, done_tx, CHAINING_DEPTH);
-                }).detach();
+                rt_inner
+                    .spawn(async move {
+                        iter(rt_new, done_tx, CHAINING_DEPTH);
+                    })
+                    .detach();
 
                 done_rx.recv().unwrap();
             });
@@ -179,9 +182,11 @@ mod chained_spawn {
 mod spawn_many {
     use super::*;
     use criterion::Bencher;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering::Relaxed;
-    use std::sync::{mpsc, Arc};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering::Relaxed},
+        mpsc,
+        Arc,
+    };
 
     fn cbwp_rt() -> impl FuturesExecutor {
         executors::crossbeam_workstealing_pool::small_pool(8)
@@ -251,7 +256,8 @@ mod spawn_many {
                         if 1 == rem.fetch_sub(1, Relaxed) {
                             tx.send(()).unwrap();
                         }
-                    }).detach();
+                    })
+                    .detach();
                 }
 
                 let _ = rx.recv().unwrap();
@@ -294,10 +300,14 @@ mod ping_pong {
     use super::*;
     use criterion::Bencher;
     use futures::channel::oneshot;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering::SeqCst;
-    use std::sync::{mpsc, Arc};
-    use std::time::Duration;
+    use std::{
+        sync::{
+            atomic::{AtomicUsize, Ordering::SeqCst},
+            mpsc,
+            Arc,
+        },
+        time::Duration,
+    };
 
     fn cbwp_rt() -> impl FuturesExecutor {
         executors::crossbeam_workstealing_pool::small_pool(4)
@@ -352,28 +362,33 @@ mod ping_pong {
                     let rem = rem.clone();
                     let done_tx = done_tx.clone();
                     let rt_new2 = rt_new.clone();
-                    rt_new.spawn(async move {
-                        let (tx1, rx1) = oneshot::channel();
-                        let (tx2, rx2) = oneshot::channel();
+                    rt_new
+                        .spawn(async move {
+                            let (tx1, rx1) = oneshot::channel();
+                            let (tx2, rx2) = oneshot::channel();
 
-                        rt_new2.spawn(async move {
-                            rx1.await.unwrap();
-                            tx2.send(()).unwrap();
-                        }).detach();
+                            rt_new2
+                                .spawn(async move {
+                                    rx1.await.unwrap();
+                                    tx2.send(()).unwrap();
+                                })
+                                .detach();
 
-                        tx1.send(()).unwrap();
-                        rx2.await.unwrap();
+                            tx1.send(()).unwrap();
+                            rx2.await.unwrap();
 
-                        let res = rem.fetch_sub(1, SeqCst);
-                        if 1 == res {
-                            done_tx.try_send(()).expect("done should have sent");
-                        }
-                        // else {
-                        //     println!("Pinger {} is done, but {} remaining.", i, res);
-                        // }
-                    }).detach();
+                            let res = rem.fetch_sub(1, SeqCst);
+                            if 1 == res {
+                                done_tx.try_send(()).expect("done should have sent");
+                            }
+                            // else {
+                            //     println!("Pinger {} is done, but {} remaining.", i, res);
+                            // }
+                        })
+                        .detach();
                 }
-            }).detach();
+            })
+            .detach();
 
             let res = done_rx.recv_timeout(Duration::from_millis(5000)); //.expect("should have gotten a done with 5s");
             if res.is_err() {

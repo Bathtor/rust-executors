@@ -129,12 +129,15 @@ impl<V, E: Debug> LogErrors for Result<V, E> {
     fn log_error(self, msg: &str) {
         let _ = self.map_err(|e| error!("{}: {:?}", msg, e));
     }
+
     fn log_warn(self, msg: &str) {
         let _ = self.map_err(|e| warn!("{}: {:?}", msg, e));
     }
+
     fn log_info(self, msg: &str) {
         let _ = self.map_err(|e| info!("{}: {:?}", msg, e));
     }
+
     fn log_debug(self, msg: &str) {
         let _ = self.map_err(|e| debug!("{}: {:?}", msg, e));
     }

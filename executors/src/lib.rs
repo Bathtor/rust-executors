@@ -49,10 +49,14 @@ pub use locals::*;
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use std::fmt::Debug;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-    use std::time::Duration;
+    use std::{
+        fmt::Debug,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        time::Duration,
+    };
 
     pub const N_DEPTH_SMALL: usize = 1024;
     pub const N_DEPTH: usize = 8192; // run_now can't do this, but it's a good test for the others

@@ -65,31 +65,39 @@
 //! ```
 
 use super::*;
-use crate::futures_executor::FuturesExecutor;
 #[cfg(feature = "numa-aware")]
 use crate::numa_utils::{equidistance, ProcessingUnitDistance};
-use crate::parker;
 #[cfg(not(feature = "ws-no-park"))]
 use crate::parker::ParkResult;
-use crate::parker::{DynParker, Parker};
+use crate::{
+    futures_executor::FuturesExecutor,
+    parker,
+    parker::{DynParker, Parker},
+};
 #[cfg(feature = "thread-pinning")]
 use core_affinity::CoreId;
 use crossbeam_channel as channel;
 use crossbeam_deque as deque;
 use crossbeam_utils::Backoff;
 use rand::prelude::*;
-use std::cell::UnsafeCell;
-use std::collections::BTreeMap;
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Weak};
-use std::thread;
-use std::time::Duration;
 #[cfg(feature = "ws-timed-fairness")]
 use std::time::Instant;
-use std::vec::Vec;
+use std::{
+    cell::UnsafeCell,
+    collections::BTreeMap,
+    fmt::{Debug, Formatter},
+    future::Future,
+    ops::Deref,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+        Mutex,
+        Weak,
+    },
+    thread,
+    time::Duration,
+    vec::Vec,
+};
 
 /// Creates a thread pool with support for up to 32 threads.
 ///
@@ -463,10 +471,11 @@ where
     }
 
     fn shutdown_borrowed(&self) -> Result<(), String> {
-        if !self
+        if self
             .inner
             .shutdown
-            .compare_and_swap(false, true, Ordering::SeqCst)
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
         {
             let latch = Arc::new(CountdownEvent::new(self.inner.threads));
             debug!("Shutting down {} threads", self.inner.threads);
@@ -1005,6 +1014,7 @@ impl JobStealer {
             core_id,
         }
     }
+
     fn id(&self) -> usize {
         self.id
     }
@@ -1025,6 +1035,7 @@ impl Eq for JobStealer {}
 
 impl Deref for JobStealer {
     type Target = deque::Stealer<Job>;
+
     fn deref(&self) -> &Self::Target {
         &self.inner
     }

@@ -50,11 +50,17 @@
 use super::*;
 
 use crossbeam_channel as channel;
-use std::future::Future;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Weak};
-use std::thread;
-use std::time::Duration;
+use std::{
+    future::Future,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+        Mutex,
+        Weak,
+    },
+    thread,
+    time::Duration,
+};
 
 /// A handle to a [crossbeam_channel_pool](crossbeam_channel_pool)
 ///
@@ -200,9 +206,10 @@ impl CanExecute for ThreadPool {
 
 impl Executor for ThreadPool {
     fn shutdown_async(&self) {
-        if !self
+        if self
             .shutdown
-            .compare_and_swap(false, true, Ordering::SeqCst)
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
         {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
@@ -217,9 +224,10 @@ impl Executor for ThreadPool {
     }
 
     fn shutdown_borrowed(&self) -> Result<(), String> {
-        if !self
+        if self
             .shutdown
-            .compare_and_swap(false, true, Ordering::SeqCst)
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
         {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
@@ -306,9 +314,10 @@ impl ThreadPoolCore {
 
 impl Drop for ThreadPoolCore {
     fn drop(&mut self) {
-        if !self
+        if self
             .shutdown
-            .compare_and_swap(false, true, Ordering::SeqCst)
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
         {
             let latch = Arc::new(CountdownEvent::new(self.threads));
             debug!("Shutting down {} threads", self.threads);
@@ -360,6 +369,7 @@ impl ThreadPoolWorker {
             recv,
         }
     }
+
     fn run(&mut self) {
         debug!("CrossbeamWorker {} starting", self.id);
         let sender = {

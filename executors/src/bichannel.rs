@@ -13,9 +13,10 @@
 //! which provide mirror images of send/receive functions to each other.
 //!
 
-use std::sync::mpsc;
-use std::sync::mpsc::*;
-use std::time::Duration;
+use std::{
+    sync::{mpsc, mpsc::*},
+    time::Duration,
+};
 
 /// Creates a new asynchronous bidirectional channel, returning the
 /// the two asymmetrical Endpoints.
@@ -98,9 +99,7 @@ impl<In, Out> Endpoint<In, Out> {
 mod tests {
 
     use super::*;
-    use std::sync::Arc;
-    use std::thread;
-    use std::time::Duration;
+    use std::{sync::Arc, thread, time::Duration};
     use synchronoise::CountdownEvent;
     struct Ping;
     struct Pong;

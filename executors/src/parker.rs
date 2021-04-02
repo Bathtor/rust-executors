@@ -12,12 +12,17 @@
 //! but could be used to build custom thread-pools as well.
 
 use arr_macro::arr;
-use std::collections::BTreeMap;
-use std::fmt;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::thread::Thread;
+use std::{
+    collections::BTreeMap,
+    fmt,
+    sync::{
+        atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
+        Arc,
+        Mutex,
+    },
+    thread,
+    thread::Thread,
+};
 
 /// Get a parker for up to 32 threads
 pub fn small() -> StaticParker<SmallThreadData> {
@@ -720,11 +725,13 @@ impl AtomicBitSet for AtomicU32 {
         let mask = 1u32 << at;
         self.fetch_or(mask, Ordering::SeqCst);
     }
+
     fn unset_at(&self, at: usize) -> () {
         assert!(at < 32);
         let mask = !(1u32 << at);
         self.fetch_and(mask, Ordering::SeqCst);
     }
+
     fn get_lowest(&self) -> Result<usize, BitSetEmpty> {
         let cur = self.load(Ordering::SeqCst);
         if (cur == 0u32) {
@@ -751,11 +758,13 @@ impl AtomicBitSet for AtomicU64 {
         let mask = 1u64 << at;
         self.fetch_or(mask, Ordering::SeqCst);
     }
+
     fn unset_at(&self, at: usize) -> () {
         assert!(at < 64);
         let mask = !(1u64 << at);
         self.fetch_and(mask, Ordering::SeqCst);
     }
+
     fn get_lowest(&self) -> Result<usize, BitSetEmpty> {
         let cur = self.load(Ordering::SeqCst);
         if (cur == 0u64) {

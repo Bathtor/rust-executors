@@ -32,8 +32,10 @@
 //! If you use [try_execute_locally](try_execute_locally) from within a job closure,
 //! it will be the same as running recursively, so you may run of out stack space, eventually.
 use super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 /// A handle to the [run_now](run_now) executor
 ///
@@ -93,7 +95,11 @@ impl Executor for RunNowExecutor {
     }
 
     fn shutdown_async(&self) {
-        if self.active.compare_and_swap(true, false, Ordering::SeqCst) {
+        if self
+            .active
+            .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
             debug!("Shutting down executor.");
         } else {
             warn!("Executor was already shut down!");
@@ -101,7 +107,11 @@ impl Executor for RunNowExecutor {
     }
 
     fn shutdown_borrowed(&self) -> Result<(), String> {
-        if self.active.compare_and_swap(true, false, Ordering::SeqCst) {
+        if self
+            .active
+            .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
             debug!("Shutting down executor.");
             Result::Ok(())
         } else {
