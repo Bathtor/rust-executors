@@ -1,0 +1,54 @@
+name: Codecov
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+    types: [opened, reopened, synchronize]
+
+jobs:
+  codecov-grcov:
+    name: Generate code coverage
+    strategy:
+      fail-fast: true
+    steps:
+      - name: install toolchain according to rust-toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          profile: default
+          override: true
+          components: llvm-tools-preview
+      - name: Checkout sources
+        uses: actions/checkout@v2
+      - name: Install grcov
+        run: if [[ ! -e ~/.cargo/bin/grcov ]]; then cargo install grcov; fi
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+        env:
+          RUSTFLAGS: '-Zinstrument-coverage'
+          RUSTDOCFLAGS: '-Zinstrument-coverage'
+      - name: Run tests
+        env:
+          RUSTFLAGS: '-Zinstrument-coverage'
+          RUSTDOCFLAGS: '-Zinstrument-coverage'
+          LLVM_PROFILE_FILE: 'codecov-instrumentation-%p-%m.profraw'
+        run: |
+          cargo test
+          cargo test -- --ignored
+          cargo test --manifest-path=executors/Cargo.toml --features ws-no-park
+          cargo test --manifest-path=executors/Cargo.toml --features ws-no-park -- --ignored
+          cargo test --manifest-path=executors/Cargo.toml --no-default-features  --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning
+          cargo test --manifest-path=executors/Cargo.toml --no-default-features  --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning -- --ignored
+          cargo test --manifest-path=executors/Cargo.toml --features thread-pinning
+          cargo test --manifest-path=executors/Cargo.toml --features thread-pinning -- --ignored
+          cargo test --manifest-path=executors/Cargo.toml --features numa-aware
+          cargo test --manifest-path=executors/Cargo.toml --features numa-aware -- --ignored
+      - name: Run grcov
+        run: grcov executors/ --binary-path target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore '../**' --ignore '/*' -o coverage.lcov
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v1

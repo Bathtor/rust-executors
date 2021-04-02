@@ -1,0 +1,186 @@
+name: CI
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+    types: [opened, reopened, synchronize]
+  schedule:
+    - cron: '0 0 * * *'  # every day at midnight
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, nightly]
+    steps:
+      - name: Setup rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          override: true
+      - name: Use the cache to share dependencies # keyed by Cargo.lock
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Checkout sources
+        uses: actions/checkout@v2
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose
+      - name: Run ignored tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose -- --ignored
+
+  test-executors-no-ws-timed-fairness:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, nightly]
+    steps:
+      - name: Setup rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          override: true
+      - name: Use the cache to share dependencies # keyed by Cargo.lock
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Checkout sources
+        uses: actions/checkout@v2
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path=executors/Cargo.toml --no-default-features --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning
+      - name: Run ignored tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path=executors/Cargo.toml --no-default-features --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning -- --ignored
+
+  test-executors-misc-features:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, nightly]
+        feature: [ws-no-park, thread-pinning, numa-aware]
+    steps:
+      - name: Setup rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          override: true
+      - name: Use the cache to share dependencies # keyed by Cargo.lock
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Checkout sources
+        uses: actions/checkout@v2
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path=executors/Cargo.toml --features ${{ matrix.feature }}
+      - name: Run ignored tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path=executors/Cargo.toml --features ${{ matrix.feature }} -- --ignored
+
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly-2021-02-13
+          override: true
+          components: rustfmt, clippy
+      - name: Use the cache to share dependencies # keyed by Cargo.lock
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Checkout sources
+        uses: actions/checkout@v2
+      - name: Run cargo clippy (default)
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all-targets -- -D warnings
+      - name: Run cargo clippy (ws-no-park)
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path=executors/Cargo.toml --all-targets --features ws-no-park -- -D warnings
+      - name: Run cargo clippy (!ws-timed-fairness)
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path=executors/Cargo.toml --all-targets --no-default-features  --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning -- -D warnings
+      - name: Run cargo clippy (thread-pinning)
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path=executors/Cargo.toml --all-targets --features thread-pinning -- -D warnings
+      - name: Run cargo clippy (numa-aware)
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path=executors/Cargo.toml --all-targets --features numa-aware -- -D warnings
+
+  format:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly-2021-02-13
+          override: true
+          components: rustfmt, clippy
+      - name: Use the cache to share dependencies # keyed by Cargo.lock
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Checkout sources
+        uses: actions/checkout@v2
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
