@@ -39,18 +39,18 @@ jobs:
           RUSTDOCFLAGS: '-Zinstrument-coverage'
           LLVM_PROFILE_FILE: 'codecov-instrumentation-%p-%m.profraw'
         run: |
-          cargo test
-          cargo test -- --ignored
-          cargo test --manifest-path=executors/Cargo.toml --features ws-no-park
-          cargo test --manifest-path=executors/Cargo.toml --features ws-no-park -- --ignored
-          cargo test --manifest-path=executors/Cargo.toml --no-default-features  --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning
-          cargo test --manifest-path=executors/Cargo.toml --no-default-features  --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning -- --ignored
-          cargo test --manifest-path=executors/Cargo.toml --features thread-pinning
-          cargo test --manifest-path=executors/Cargo.toml --features thread-pinning -- --ignored
-          cargo test --manifest-path=executors/Cargo.toml --features numa-aware
-          cargo test --manifest-path=executors/Cargo.toml --features numa-aware -- --ignored
-          cargo test --manifest-path=executors/Cargo.toml --features produce-metrics
-          cargo test --manifest-path=executors/Cargo.toml --features produce-metrics -- --ignored
+          cargo test -- --test-threads=1
+          cargo test -- --ignored --test-threads=1
+          cargo test --manifest-path=executors/Cargo.toml --features ws-no-park -- --test-threads=1
+          cargo test --manifest-path=executors/Cargo.toml --features ws-no-park -- --ignored --test-threads=1
+          cargo test --manifest-path=executors/Cargo.toml --no-default-features --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning -- --test-threads=1
+          cargo test --manifest-path=executors/Cargo.toml --no-default-features --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning -- --ignored --test-threads=1
+          cargo test --manifest-path=executors/Cargo.toml --features thread-pinning -- --test-threads=1
+          cargo test --manifest-path=executors/Cargo.toml --features thread-pinning -- --ignored --test-threads=1
+          cargo test --manifest-path=executors/Cargo.toml --features numa-aware -- --test-threads=1
+          cargo test --manifest-path=executors/Cargo.toml --features numa-aware -- --ignored --test-threads=1
+          cargo test --manifest-path=executors/Cargo.toml --features produce-metrics -- --test-threads=1
+          cargo test --manifest-path=executors/Cargo.toml --features produce-metrics -- --ignored --test-threads=1
       - name: Run grcov
         run: grcov executors/ --binary-path target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore '../**' --ignore '/*' -o coverage.lcov
       - name: Upload to codecov.io
