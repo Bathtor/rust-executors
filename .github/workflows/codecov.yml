@@ -49,6 +49,8 @@ jobs:
           cargo test --manifest-path=executors/Cargo.toml --features thread-pinning -- --ignored
           cargo test --manifest-path=executors/Cargo.toml --features numa-aware
           cargo test --manifest-path=executors/Cargo.toml --features numa-aware -- --ignored
+          cargo test --manifest-path=executors/Cargo.toml --features produce-metrics
+          cargo test --manifest-path=executors/Cargo.toml --features produce-metrics -- --ignored
       - name: Run grcov
         run: grcov executors/ --binary-path target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore '../**' --ignore '/*' -o coverage.lcov
       - name: Upload to codecov.io

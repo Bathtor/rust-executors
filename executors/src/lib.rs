@@ -15,6 +15,49 @@
 //!
 //! General examples can be found in the [`Executor`](common/trait.Executor.html) trait
 //! documentation, and implementation specific examples with each implementation module.
+//!
+//! # Crate Feature Flags
+//!
+//! The following crate feature flags are available. They are configured in your `Cargo.toml`.
+//!
+//! - `threadpool-exec` (default)
+//!     - Provides a wrapper implementation around the [threadpool](https://crates.io/crates/threadpool) crate.
+//!     - See [threadpool_executor](threadpool_executor).
+//! - `cb-channel-exec` (default)
+//!     - Provides a thread pool executor with a single global queue. 
+//!     - See [crossbeam_channel_pool](crossbeam_channel_pool).
+//! - `workstealing-exec` (default)
+//!     - Provides a thread pool executor with thread-local queues in addition to a global injector queue.
+//!     - See [crossbeam_workstealing_pool](crossbeam_workstealing_pool).
+//! - `defaults` (default)
+//!     - Produces [Default](std::default::Default) implementations using [num_cpus](https://crates.io/crates/num_cpus) to determine pool sizes.
+//! - `ws-timed-fairness` (default)
+//!     - This feature flag determines the fairness mechanism between local and global queues in the [crossbeam_workstealing_pool](crossbeam_workstealing_pool).
+//!     - If the flag is enabled the fairness is time-based. The global queue will be checked every 100ms.
+//!     - If the flags is absent the fairness is count-based. The global queue will be checked every 100 local jobs.
+//!     - Which one you should pick depends on your application. 
+//!     - Time-based fairness is a compromise between latency of externally scheduled jobs and overall throughput.
+//!     - Count-based is going to depend heavily on how long your jobs typically are, but counting is cheaper than checking time, so it can lead to higher throughput.
+//! - `ws-no-park`
+//!     - Disable thread parking for the [crossbeam_workstealing_pool](crossbeam_workstealing_pool).
+//!     - This is generally detrimental to performance, as idle threads will unnecessarily hang on to CPU resources.
+//!     - However, for very latency sensitive interactions with external resources (e.g., I/O), this can reduce overall job latency.
+//! - `thread-pinning`
+//!     - Allows pool threads to be pinned to specific cores.
+//!     - This can reduce cache invalidation overhead when threads sleep and then are woken up later.
+//!     - However, if your cores are needed by other processes, it can also introduce additional scheduling delay, if the pinned core isn't available immediately at wake time.
+//!     - Use with care.
+//! - `numa-aware`
+//!     - Make memory architecture aware decisions.
+//!     - Concretely this setting currently only affects [crossbeam_workstealing_pool](crossbeam_workstealing_pool).
+//!     - When it is enabled, work-stealing will happen by memory proximity.
+//!     - That is threads with too little work will try to steal work from memory-close other threads first, before trying further away threads.
+//! - `produce-metrics`
+//!     - Every executor provided in this crate can produce metrics using the [metrics](https://crates.io/crates/metrics) crate.
+//!     - The metrics are `executors.jobs_executed` (*"How many jobs were executed in total?"*) and `executors.jobs_queued` (*"How many jobs are currently waiting to be executed?"*).
+//!     - Not all executors produce all metrics.
+//!     - **WARNING**: Collecting these metrics typically has a serious performance impact. You should only consider using this in production if your jobs are fairly large anyway (say in the millisecond range).
+
 
 #[macro_use]
 extern crate log;

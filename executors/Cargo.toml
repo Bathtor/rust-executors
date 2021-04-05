@@ -24,7 +24,7 @@ workstealing-exec = ["crossbeam-channel", "crossbeam-deque", "rand", "crossbeam-
 defaults = ["num_cpus"]
 
 # In the workstealing executor, check the global queues every 1ms
-ws-timed-fairness = [] #["time"]
+ws-timed-fairness = []
 # Otherwise check the global queues every 100 jobs
 
 # In the workstealing executor, never park worker threads
@@ -32,6 +32,7 @@ ws-no-park = []
 
 thread-pinning = ["core_affinity"]
 numa-aware = ["thread-pinning"]
+
 produce-metrics = ["metrics"]
 
 
