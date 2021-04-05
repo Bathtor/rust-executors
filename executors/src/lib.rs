@@ -147,7 +147,7 @@ pub(crate) mod tests {
     pub const N_WIDTH: usize = 128;
     pub const N_SLEEP_ROUNDS: usize = 11;
 
-    pub const TEST_TIMEOUT: Duration = Duration::from_secs(120);
+    pub const TEST_TIMEOUT: Duration = Duration::from_secs(240);
 
     pub fn test_debug<E>(exec: &E, label: &str)
     where
