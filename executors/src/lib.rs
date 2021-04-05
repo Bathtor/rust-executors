@@ -24,7 +24,7 @@
 //!     - Provides a wrapper implementation around the [threadpool](https://crates.io/crates/threadpool) crate.
 //!     - See [threadpool_executor](threadpool_executor).
 //! - `cb-channel-exec` (default)
-//!     - Provides a thread pool executor with a single global queue. 
+//!     - Provides a thread pool executor with a single global queue.
 //!     - See [crossbeam_channel_pool](crossbeam_channel_pool).
 //! - `workstealing-exec` (default)
 //!     - Provides a thread pool executor with thread-local queues in addition to a global injector queue.
@@ -35,7 +35,7 @@
 //!     - This feature flag determines the fairness mechanism between local and global queues in the [crossbeam_workstealing_pool](crossbeam_workstealing_pool).
 //!     - If the flag is enabled the fairness is time-based. The global queue will be checked every 100ms.
 //!     - If the flags is absent the fairness is count-based. The global queue will be checked every 100 local jobs.
-//!     - Which one you should pick depends on your application. 
+//!     - Which one you should pick depends on your application.
 //!     - Time-based fairness is a compromise between latency of externally scheduled jobs and overall throughput.
 //!     - Count-based is going to depend heavily on how long your jobs typically are, but counting is cheaper than checking time, so it can lead to higher throughput.
 //! - `ws-no-park`
@@ -57,7 +57,6 @@
 //!     - The metrics are `executors.jobs_executed` (*"How many jobs were executed in total?"*) and `executors.jobs_queued` (*"How many jobs are currently waiting to be executed?"*).
 //!     - Not all executors produce all metrics.
 //!     - **WARNING**: Collecting these metrics typically has a serious performance impact. You should only consider using this in production if your jobs are fairly large anyway (say in the millisecond range).
-
 
 #[macro_use]
 extern crate log;
