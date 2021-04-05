@@ -356,7 +356,7 @@ impl CanExecute for ThreadLocalExecute {
     fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
         self.0
             .send(JobMsg::Job(job))
-            .unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
+            .unwrap_or_else(|e| error!("Error submitting Job: {:?}", e));
 
         #[cfg(feature = "produce-metrics")]
         increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_channel_pool");
@@ -391,14 +391,24 @@ impl ThreadPoolWorker {
         };
         let sentinel = Sentinel::new(self.core.clone(), self.id);
         set_local_executor(ThreadLocalExecute(sender));
+
+        #[cfg(feature = "produce-metrics")]
+        let (mut last_metrics_check, mut executed_since_check) = (std::time::Instant::now(), 0u64);
+
         while let Ok(msg) = self.recv.recv() {
             match msg {
                 JobMsg::Job(f) => {
                     f();
+
                     #[cfg(feature = "produce-metrics")]
                     {
-                        increment_counter!("executors.jobs_executed", "executor" => "crossbeam_channel_pool", "thread_id" => format!("{}", self.id));
-                        decrement_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_channel_pool");
+                        executed_since_check += 1u64;
+                        if last_metrics_check.elapsed() > METRICS_INTERVAL {
+                            counter!("executors.jobs_executed", executed_since_check, "executor" => "crossbeam_channel_pool", "thread_id" => format!("{}", self.id));
+                            decrement_gauge!("executors.jobs_queued", executed_since_check as f64, "executor" => "crossbeam_channel_pool");
+                            executed_since_check = 0u64;
+                            last_metrics_check = std::time::Instant::now();
+                        }
                     }
                 }
                 JobMsg::Task(t) => {
@@ -406,8 +416,13 @@ impl ThreadPoolWorker {
 
                     #[cfg(feature = "produce-metrics")]
                     {
-                        increment_counter!("executors.jobs_executed", "executor" => "crossbeam_channel_pool", "thread_id" => format!("{}", self.id));
-                        decrement_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_channel_pool");
+                        executed_since_check += 1u64;
+                        if last_metrics_check.elapsed() > METRICS_INTERVAL {
+                            counter!("executors.jobs_executed", executed_since_check, "executor" => "crossbeam_channel_pool", "thread_id" => format!("{}", self.id));
+                            decrement_gauge!("executors.jobs_queued", executed_since_check as f64, "executor" => "crossbeam_channel_pool");
+                            executed_since_check = 0u64;
+                            last_metrics_check = std::time::Instant::now();
+                        }
                     }
                 }
                 JobMsg::Stop(latch) => {
@@ -421,6 +436,9 @@ impl ThreadPoolWorker {
         debug!("CrossbeamWorker {} shutting down", self.id);
     }
 }
+
+#[cfg(feature = "produce-metrics")]
+const METRICS_INTERVAL: Duration = Duration::from_millis(10);
 
 enum JobMsg {
     Job(Box<dyn FnOnce() + Send + 'static>),
