@@ -198,6 +198,9 @@ impl CanExecute for ThreadPool {
             self.sender
                 .send(JobMsg::Job(job))
                 .unwrap_or_else(|e| error!("Error submitting job: {:?}", e));
+
+            #[cfg(feature = "produce-metrics")]
+            increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_channel_pool");
         } else {
             warn!("Ignoring job as pool is shutting down.");
         }
@@ -250,6 +253,12 @@ impl Executor for ThreadPool {
         } else {
             Result::Err(String::from("Pool is already shutting down!"))
         }
+    }
+
+    #[cfg(feature = "produce-metrics")]
+    fn register_metrics(&self) {
+        register_counter!("executors.jobs_executed", "The total number of jobs that were executed", "executor" => "crossbeam_channel_pool");
+        register_gauge!("executors.jobs_queued", "The number of jobs that are currently waiting to be executed", "executor" => "crossbeam_channel_pool");
     }
 }
 
@@ -348,6 +357,9 @@ impl CanExecute for ThreadLocalExecute {
         self.0
             .send(JobMsg::Job(job))
             .unwrap_or_else(|e| error!("Error submitting Stop msg: {:?}", e));
+
+        #[cfg(feature = "produce-metrics")]
+        increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_channel_pool");
     }
 }
 
@@ -381,9 +393,22 @@ impl ThreadPoolWorker {
         set_local_executor(ThreadLocalExecute(sender));
         while let Ok(msg) = self.recv.recv() {
             match msg {
-                JobMsg::Job(f) => f(),
+                JobMsg::Job(f) => {
+                    f();
+                    #[cfg(feature = "produce-metrics")]
+                    {
+                        increment_counter!("executors.jobs_executed", "executor" => "crossbeam_channel_pool", "thread_id" => format!("{}", self.id));
+                        decrement_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_channel_pool");
+                    }
+                }
                 JobMsg::Task(t) => {
                     let _ = t.run();
+
+                    #[cfg(feature = "produce-metrics")]
+                    {
+                        increment_counter!("executors.jobs_executed", "executor" => "crossbeam_channel_pool", "thread_id" => format!("{}", self.id));
+                        decrement_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_channel_pool");
+                    }
                 }
                 JobMsg::Stop(latch) => {
                     let _ = latch.decrement();

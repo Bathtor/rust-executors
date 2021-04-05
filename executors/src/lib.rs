@@ -46,6 +46,47 @@ use synchronoise::CountdownEvent;
 mod locals;
 pub use locals::*;
 
+#[cfg(feature = "produce-metrics")]
+use metrics::{
+    counter,
+    decrement_gauge,
+    increment_counter,
+    increment_gauge,
+    register_counter,
+    register_gauge,
+};
+
+// #[cfg(feature = "produce-metrics")]
+// pub mod metric_keys {
+//     /// Counts the total number of jobs that were executed.
+//     ///
+//     /// This is a metric key.
+//     pub const JOBS_EXECUTED: &str = "executors.jobs_executed";
+
+//     pub(crate) const JOBS_EXECUTED_DESCRIPTION: &str =
+//         "The total number of jobs that were executed";
+
+//     /// Counts the number of jobs that are currently waiting to be executed.
+//     ///
+//     /// This is a metric key.
+//     pub const JOBS_QUEUED: &str = "executors.jobs_queued";
+
+//     pub(crate) const JOBS_QUEUED_DESCRIPTION: &str =
+//         "The number of jobs that are currently waiting to be executed";
+
+//     /// The concrete [Executor](Executor) implementation that logged record.
+//     ///
+//     /// This is a label key.
+//     pub const EXECUTOR: &str = "executor";
+
+//     /// The id of the thread that logged record.
+//     ///
+//     /// This is only present on multi-threaded executors.
+//     ///
+//     /// This is a label key.
+//     pub const THREAD_ID: &str = "thread_id";
+// }
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -63,6 +104,8 @@ pub(crate) mod tests {
     pub const N_WIDTH: usize = 128;
     pub const N_SLEEP_ROUNDS: usize = 11;
 
+    pub const TEST_TIMEOUT: Duration = Duration::from_secs(120);
+
     pub fn test_debug<E>(exec: &E, label: &str)
     where
         E: Executor + Debug,
@@ -74,7 +117,13 @@ pub(crate) mod tests {
     where
         E: Executor + Debug + std::default::Default + 'static,
     {
+        let _ = env_logger::try_init();
+        #[cfg(feature = "produce-metrics")]
+        metrics_printer::init();
+
         let pool = E::default();
+        #[cfg(feature = "produce-metrics")]
+        pool.register_metrics();
 
         let latch = Arc::new(CountdownEvent::new(N_DEPTH_SMALL * N_WIDTH));
         for _ in 0..N_WIDTH {
@@ -84,7 +133,7 @@ pub(crate) mod tests {
                 do_step(latch2, pool2, N_DEPTH_SMALL);
             });
         }
-        let res = latch.wait_timeout(Duration::from_secs(30));
+        let res = latch.wait_timeout(TEST_TIMEOUT);
         assert_eq!(res, 0);
         pool.shutdown()
             .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
@@ -94,7 +143,12 @@ pub(crate) mod tests {
     where
         E: Executor + Debug + std::default::Default + 'static,
     {
+        #[cfg(feature = "produce-metrics")]
+        metrics_printer::init();
+
         let pool = E::default();
+        #[cfg(feature = "produce-metrics")]
+        pool.register_metrics();
 
         let latch = Arc::new(CountdownEvent::new(N_DEPTH * N_WIDTH));
         for _ in 0..N_WIDTH {
@@ -104,7 +158,7 @@ pub(crate) mod tests {
                 do_step(latch2, pool2, N_DEPTH);
             });
         }
-        let res = latch.wait_timeout(Duration::from_secs(60));
+        let res = latch.wait_timeout(TEST_TIMEOUT);
         assert_eq!(res, 0);
         pool.shutdown()
             .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
@@ -114,7 +168,12 @@ pub(crate) mod tests {
     where
         E: Executor + Debug + 'static,
     {
+        #[cfg(feature = "produce-metrics")]
+        metrics_printer::init();
+
         let pool = exec;
+        #[cfg(feature = "produce-metrics")]
+        pool.register_metrics();
 
         let latch = Arc::new(CountdownEvent::new(N_DEPTH * N_WIDTH));
         for _ in 0..N_WIDTH {
@@ -124,7 +183,7 @@ pub(crate) mod tests {
                 do_step(latch2, pool2, N_DEPTH);
             });
         }
-        let res = latch.wait_timeout(Duration::from_secs(30));
+        let res = latch.wait_timeout(TEST_TIMEOUT);
         assert_eq!(res, 0);
         pool.shutdown()
             .unwrap_or_else(|e| error!("Error during pool shutdown {:?} at {}", e, label));
@@ -134,6 +193,12 @@ pub(crate) mod tests {
     where
         E: Executor + 'static,
     {
+        #[cfg(feature = "produce-metrics")]
+        metrics_printer::init();
+
+        #[cfg(feature = "produce-metrics")]
+        pool.register_metrics();
+
         info!("Running sleepy test for {}", label);
         let latch = Arc::new(CountdownEvent::new(N_SLEEP_ROUNDS * N_WIDTH));
         for round in 1..=N_SLEEP_ROUNDS {
@@ -157,7 +222,12 @@ pub(crate) mod tests {
     where
         E: Executor + Debug + 'static,
     {
+        #[cfg(feature = "produce-metrics")]
+        metrics_printer::init();
+
         let pool = exec;
+        #[cfg(feature = "produce-metrics")]
+        pool.register_metrics();
 
         let latch = Arc::new(CountdownEvent::new(N_DEPTH * N_WIDTH));
         let failed = Arc::new(AtomicBool::new(false));
@@ -168,7 +238,7 @@ pub(crate) mod tests {
                 do_step_local(latch2, failed2, N_DEPTH);
             });
         }
-        let res = latch.wait_timeout(Duration::from_secs(30));
+        let res = latch.wait_timeout(TEST_TIMEOUT);
         assert_eq!(res, 0);
         assert!(
             !failed.load(Ordering::SeqCst),
@@ -182,7 +252,12 @@ pub(crate) mod tests {
     where
         E: Executor + Debug + 'static,
     {
+        #[cfg(feature = "produce-metrics")]
+        metrics_printer::init();
+
         let pool = exec;
+        #[cfg(feature = "produce-metrics")]
+        pool.register_metrics();
 
         let latch = Arc::new(CountdownEvent::new(N_DEPTH_SMALL * N_WIDTH));
         let failed = Arc::new(AtomicBool::new(false));
@@ -193,7 +268,7 @@ pub(crate) mod tests {
                 do_step_local(latch2, failed2, N_DEPTH_SMALL);
             });
         }
-        let res = latch.wait_timeout(Duration::from_secs(30));
+        let res = latch.wait_timeout(TEST_TIMEOUT);
         assert_eq!(res, 0);
         assert!(
             !failed.load(Ordering::SeqCst),

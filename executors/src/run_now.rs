@@ -73,6 +73,8 @@ impl CanExecute for RunNowExecutor {
     fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
         if self.active.load(Ordering::SeqCst) {
             job();
+            #[cfg(feature = "produce-metrics")]
+            increment_counter!("executors.jobs_executed", "executor" => std::any::type_name::<Self>());
         } else {
             warn!("Ignoring job as pool is shutting down.");
         }
@@ -89,6 +91,8 @@ impl Executor for RunNowExecutor {
             set_local_executor(ThreadLocalRunNow);
             job();
             unset_local_executor();
+            #[cfg(feature = "produce-metrics")]
+            increment_counter!("executors.jobs_executed", "executor" => std::any::type_name::<Self>());
         } else {
             warn!("Ignoring job as pool is shutting down.");
         }
@@ -117,6 +121,11 @@ impl Executor for RunNowExecutor {
         } else {
             Result::Err(String::from("Pool was already shut down!"))
         }
+    }
+
+    #[cfg(feature = "produce-metrics")]
+    fn register_metrics(&self) {
+        register_counter!("executors.jobs_executed", "The total number of jobs that were executed", "executor" => std::any::type_name::<Self>());
     }
 }
 

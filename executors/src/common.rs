@@ -104,6 +104,10 @@ pub trait Executor: CanExecute + Clone + Send {
     ///
     /// Meant for use with trait object wrappers.
     fn shutdown_borrowed(&self) -> Result<(), String>;
+
+    /// Register all the metrics this executor exposes.
+    #[cfg(feature = "produce-metrics")]
+    fn register_metrics(&self);
 }
 
 // A trait to log errors when ignoring results.

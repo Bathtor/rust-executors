@@ -93,6 +93,16 @@ impl Default for ThreadPoolExecutor {
 impl CanExecute for ThreadPoolExecutor {
     fn execute_job(&self, job: Box<dyn FnOnce() + Send + 'static>) {
         if self.active.load(Ordering::SeqCst) {
+            #[cfg(feature = "produce-metrics")]
+            let job = {
+                increment_gauge!("executors.jobs_queued", 1.0, "executor" => std::any::type_name::<ThreadPoolExecutor>());
+                Box::new(move || {
+                    job();
+                    increment_counter!("executors.jobs_executed", "executor" => std::any::type_name::<ThreadPoolExecutor>());
+                    decrement_gauge!("executors.jobs_queued", 1.0, "executor" => std::any::type_name::<ThreadPoolExecutor>());
+                })
+            };
+
             self.pool.execute(job);
         } else {
             warn!("Ignoring job as pool is shutting down.");
@@ -107,6 +117,16 @@ impl Executor for ThreadPoolExecutor {
         F: FnOnce() + Send + 'static,
     {
         if self.active.load(Ordering::SeqCst) {
+            #[cfg(feature = "produce-metrics")]
+            let job = {
+                increment_gauge!("executors.jobs_queued", 1.0, "executor" => std::any::type_name::<ThreadPoolExecutor>());
+                move || {
+                    job();
+                    increment_counter!("executors.jobs_executed", "executor" => std::any::type_name::<ThreadPoolExecutor>());
+                    decrement_gauge!("executors.jobs_queued", 1.0, "executor" => std::any::type_name::<ThreadPoolExecutor>());
+                }
+            };
+
             self.pool.execute(job);
         } else {
             warn!("Ignoring job as pool is shutting down.");
@@ -138,6 +158,12 @@ impl Executor for ThreadPoolExecutor {
         } else {
             Result::Err(String::from("Pool was already shut down!"))
         }
+    }
+
+    #[cfg(feature = "produce-metrics")]
+    fn register_metrics(&self) {
+        register_counter!("executors.jobs_executed", "The total number of jobs that were executed", "executor" => std::any::type_name::<ThreadPoolExecutor>());
+        register_gauge!("executors.jobs_queued", "The number of jobs that are currently waiting to be executed", "executor" => std::any::type_name::<ThreadPoolExecutor>());
     }
 }
 

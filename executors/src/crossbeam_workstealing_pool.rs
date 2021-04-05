@@ -182,6 +182,10 @@ where
             Some(ref q) => {
                 let msg = Job::Function(Box::new(job));
                 q.push(msg);
+
+                #[cfg(feature = "produce-metrics")]
+                increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
+
                 Ok(())
             }
             None => Err(job),
@@ -407,12 +411,19 @@ where
             match *qo.get() {
                 Some(ref q) => {
                     q.push(msg);
+
+                    #[cfg(feature = "produce-metrics")]
+                    increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
                 }
                 None => {
                     debug!("Scheduling on global pool.");
                     self.inner.global_sender.push(msg);
+
                     #[cfg(not(feature = "ws-no-park"))]
                     self.inner.parker.unpark_one();
+
+                    #[cfg(feature = "produce-metrics")]
+                    increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
                 }
             }
         })
@@ -443,12 +454,19 @@ where
                 match *qo.get() {
                     Some(ref q) => {
                         q.push(msg);
+
+                        #[cfg(feature = "produce-metrics")]
+                        increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
                     }
                     None => {
                         debug!("Scheduling on global pool.");
                         self.inner.global_sender.push(msg);
+
                         #[cfg(not(feature = "ws-no-park"))]
                         self.inner.parker.unpark_one();
+
+                        #[cfg(feature = "produce-metrics")]
+                        increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
                     }
                 }
             })
@@ -504,6 +522,12 @@ where
             Result::Err(String::from("Pool is already shutting down!"))
         }
     }
+
+    #[cfg(feature = "produce-metrics")]
+    fn register_metrics(&self) {
+        register_counter!("executors.jobs_executed", "The total number of jobs that were executed", "executor" => "crossbeam_workstealing_pool");
+        register_gauge!("executors.jobs_queued", "The number of jobs that are currently waiting to be executed", "executor" => "crossbeam_workstealing_pool");
+    }
 }
 
 impl<P> FuturesExecutor for ThreadPool<P>
@@ -533,7 +557,6 @@ where
         inner: Arc<Self>,
         old_id: Option<usize>,
     ) {
-        //let guard = self.core.lock().unwrap();
         let id = old_id.unwrap_or_else(|| guard.new_worker_id());
         let (tx_control, rx_control) = channel::unbounded();
         let worker = WorkerEntry {
@@ -541,7 +564,6 @@ where
             stealer: Option::None,
         };
         guard.workers.insert(id, worker);
-        //drop(guard);
         thread::Builder::new()
             .name(format!("cb-ws-pool-worker-{}", id))
             .spawn(move || {
@@ -563,7 +585,6 @@ where
         old_id: Option<usize>,
         core_id: CoreId,
     ) {
-        //let guard = self.core.lock().unwrap();
         let id = old_id.unwrap_or_else(|| guard.new_worker_id());
         let (tx_control, rx_control) = channel::unbounded();
         let worker = WorkerEntry {
@@ -571,7 +592,6 @@ where
             stealer: Option::None,
         };
         guard.workers.insert(id, worker);
-        //drop(guard);
         thread::Builder::new()
             .name(format!("cb-ws-pool-worker-{}", id))
             .spawn(move || {
@@ -666,6 +686,9 @@ impl CanExecute for ThreadLocalExecute {
             match *qo.get() {
                 Some(ref q) => {
                     q.push(msg);
+
+                    #[cfg(feature = "produce-metrics")]
+                    increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
                 }
                 None => {
                     unreachable!("Local Executor was set but local job queue was not!");
@@ -761,6 +784,7 @@ where
 
     fn run(&mut self) {
         debug!("Worker {} starting", self.id());
+
         let local_stealer_raw = LOCAL_JOB_QUEUE.with(|q| unsafe {
             let worker = deque::Worker::new_fifo();
             let stealer = worker.stealer();
@@ -793,8 +817,10 @@ where
             // Try the local queue usually
             LOCAL_JOB_QUEUE.with(|q| unsafe {
                 if let Some(ref local_queue) = *q.get() {
-                    #[cfg(not(feature = "ws-timed-fairness"))]
+
+                    #[allow(unused_variables)]
                     let mut count = 0u64;
+
                     'local: loop {
                         match local_queue.pop() {
                             Some(d) => {
@@ -803,9 +829,10 @@ where
                             None => break 'local,
                         }
                         backoff.reset();
+                        count += 1;
+
                         #[cfg(not(feature = "ws-timed-fairness"))]
                         {
-                            count += 1;
                             if count >= CHECK_GLOBAL_MAX_MSGS {
                                 fairness_check = true;
                                 break 'local;
@@ -818,6 +845,12 @@ where
                                 break 'local;
                             }
                         }
+                    }
+
+                    #[cfg(feature = "produce-metrics")]
+                    {
+                        counter!("executors.jobs_executed", count, "executor" => "crossbeam_workstealing_pool", "thread_id" => format!("{}", self.id()));
+                        decrement_gauge!("executors.jobs_queued", count as f64, "executor" => "crossbeam_workstealing_pool");
                     }
                 } else {
                     panic!("Queue should have been initialised!");
@@ -871,6 +904,7 @@ where
             });
             if let deque::Steal::Success(msg) = glob_res {
                 msg.run();
+
                 #[cfg(feature = "ws-no-park")]
                 self.abort_sleep(&backoff, &mut snoozing, &mut failed_steal_attempts);
                 #[cfg(not(feature = "ws-no-park"))]
@@ -881,6 +915,13 @@ where
                     &mut parking,
                     &mut failed_steal_attempts,
                 );
+
+                #[cfg(feature = "produce-metrics")]
+                {
+                    increment_counter!("executors.jobs_executed", "executor" => "crossbeam_workstealing_pool", "thread_id" => format!("{}", self.id()));
+                    decrement_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
+                }
+
                 continue 'main;
             }
             // only go on if there was no work left on the local queue

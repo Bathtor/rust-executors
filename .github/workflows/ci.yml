@@ -37,12 +37,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose
+          args: --verbose -- --test-threads=1
       - name: Run ignored tests
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose -- --ignored
+          args: --verbose -- --ignored --test-threads=1
 
   test-executors-no-ws-timed-fairness:
     runs-on: ubuntu-latest
@@ -70,12 +70,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path=executors/Cargo.toml --no-default-features --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning
+          args: --manifest-path=executors/Cargo.toml --no-default-features --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning -- --test-threads=1
       - name: Run ignored tests
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path=executors/Cargo.toml --no-default-features --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning -- --ignored
+          args: --manifest-path=executors/Cargo.toml --no-default-features --features threadpool-exec,cb-channel-exec,workstealing-exec,defaults,thread-pinning -- --ignored --test-threads=1
 
   test-executors-misc-features:
     runs-on: ubuntu-latest
@@ -83,7 +83,7 @@ jobs:
       fail-fast: false
       matrix:
         rust: [stable, nightly]
-        feature: [ws-no-park, thread-pinning, numa-aware]
+        feature: [ws-no-park, thread-pinning, numa-aware, produce-metrics]
     steps:
       - name: Setup rust toolchain
         uses: actions-rs/toolchain@v1
@@ -104,12 +104,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path=executors/Cargo.toml --features ${{ matrix.feature }}
+          args: --manifest-path=executors/Cargo.toml --features ${{ matrix.feature }} -- --test-threads=1
       - name: Run ignored tests
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path=executors/Cargo.toml --features ${{ matrix.feature }} -- --ignored
+          args: --manifest-path=executors/Cargo.toml --features ${{ matrix.feature }} -- --ignored --test-threads=1
 
   clippy:
     name: cargo clippy
