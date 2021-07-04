@@ -119,7 +119,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2021-02-13
+          toolchain: nightly-2021-07-03
           override: true
           components: rustfmt, clippy
       - name: Use the cache to share dependencies # keyed by Cargo.lock
@@ -166,7 +166,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2021-02-13
+          toolchain: nightly-2021-07-03
           override: true
           components: rustfmt, clippy
       - name: Use the cache to share dependencies # keyed by Cargo.lock
