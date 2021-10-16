@@ -709,6 +709,7 @@ where
     stealers: Vec<(i32, JobStealer)>,
     random: ThreadRng,
     #[cfg(feature = "thread-pinning")]
+    #[allow(dead_code)] // is used only for debugging
     core_id: Option<CoreId>,
 }
 

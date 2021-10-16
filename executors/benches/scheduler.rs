@@ -354,8 +354,6 @@ mod ping_pong {
             let outer_rem = rem.clone();
             rem.store(PINGS_NUM, SeqCst);
             count += 1u64;
-            //println!("Iteration #{}", count);
-            //futures::executor::block_on(async {
             let rt_new = rt.clone();
             rt.spawn(async move {
                 for _i in 0..PINGS_NUM {
@@ -381,23 +379,18 @@ mod ping_pong {
                             if 1 == res {
                                 done_tx.try_send(()).expect("done should have sent");
                             }
-                            // else {
-                            //     println!("Pinger {} is done, but {} remaining.", i, res);
-                            // }
                         })
                         .detach();
                 }
             })
             .detach();
 
-            let res = done_rx.recv_timeout(Duration::from_millis(5000)); //.expect("should have gotten a done with 5s");
-            if res.is_err() {
-                panic!(
-                    "done_rx timeouted within 5s. Remaining={}",
-                    outer_rem.load(SeqCst)
-                );
-            }
-            //});
+            let res = done_rx.recv_timeout(Duration::from_millis(5000));
+            assert!(
+                !res.is_err(),
+                "done_rx timeouted within 5s. Remaining={}",
+                outer_rem.load(SeqCst)
+            );
         });
         rt.shutdown().expect("shutdown");
     }
