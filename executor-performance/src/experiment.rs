@@ -10,14 +10,6 @@ use super::*;
 use std::{default::Default, sync::Arc, thread};
 use synchronoise::CountdownEvent;
 
-#[cfg(feature = "nightly")]
-use test::black_box;
-
-#[cfg(not(feature = "nightly"))]
-fn black_box<T>(dummy: T) -> T {
-    dummy
-}
-
 #[derive(Clone, Debug)]
 pub struct ExperimentSettings {
     num_threads: usize,
@@ -181,7 +173,7 @@ fn do_work(n: u64) -> u64 {
 
 fn amplify<E: Executor + 'static>(exec: E, pre_work: u64, post_work: u64, remaining: u64) {
     black_box(do_work(pre_work));
-    if (remaining > 0) {
+    if remaining > 0 {
         let amp_exec = exec.clone();
         exec.execute(move || amplify(amp_exec, pre_work, post_work, remaining - 1));
     }
@@ -196,7 +188,7 @@ fn amplify_finish<E: Executor + 'static>(
     remaining: u64,
 ) {
     black_box(do_work(pre_work));
-    if (remaining > 0) {
+    if remaining > 0 {
         let amp_exec = exec.clone();
         exec.execute(move || {
             amplify_finish(amp_exec, pre_work, post_work, finisher, remaining - 1)

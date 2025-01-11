@@ -93,7 +93,7 @@ mod tests {
     }
 
     async fn wait_for_channel(receiver: Receiver<()>, barrier: Arc<AtomicBool>) -> () {
-        let _ok = receiver.await.expect("message");
+        receiver.await.expect("message");
         let res = barrier.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
         assert!(res.is_ok());
     }

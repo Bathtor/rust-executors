@@ -1,5 +1,3 @@
 [workspace]
-members = [
-	"executors",
-	"executor-performance",
-]
+members = ["executors", "executor-performance"]
+resolver = "2"

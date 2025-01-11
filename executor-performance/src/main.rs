@@ -5,8 +5,6 @@
 // <LICENSE or http://opensource.org/licenses/MIT>.
 // This file may not be copied, modified, or distributed
 // except according to those terms.
-#![cfg_attr(feature = "nightly", feature(test))]
-#![allow(unused_parens)]
 #![allow(clippy::style)] // not important in the testing app
 
 pub mod experiment;
@@ -27,6 +25,14 @@ use std::{
     io::prelude::*,
     path::Path,
 };
+
+//#[cfg(feature = "nightly")]
+use std::hint::black_box;
+
+//#[cfg(not(feature = "nightly"))]
+// fn black_box<T>(dummy: T) -> T {
+//     dummy
+// }
 
 fn main() {
     let throughput = SubCommand::with_name("throughput")

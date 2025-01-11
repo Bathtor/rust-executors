@@ -122,6 +122,7 @@ pub trait Executor: CanExecute + Clone + Send {
 // res.log_warn("Result was an error");
 // ```
 // NOTE: Don't generate docs for this, so the test is never run
+#[allow(dead_code)]
 pub(crate) trait LogErrors {
     fn log_error(self, msg: &str);
     fn log_warn(self, msg: &str);

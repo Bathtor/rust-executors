@@ -89,14 +89,7 @@ mod locals;
 pub use locals::*;
 
 #[cfg(feature = "produce-metrics")]
-use metrics::{
-    counter,
-    decrement_gauge,
-    increment_counter,
-    increment_gauge,
-    register_counter,
-    register_gauge,
-};
+use metrics::{counter, describe_counter, describe_gauge, gauge};
 
 // #[cfg(feature = "produce-metrics")]
 // pub mod metric_keys {

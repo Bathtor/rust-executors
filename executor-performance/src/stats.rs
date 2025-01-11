@@ -34,7 +34,7 @@ pub trait Statistics {
     }
 }
 
-impl<'a> Statistics for &'a Vec<f64> {
+impl Statistics for &Vec<f64> {
     fn sample_size(&self) -> f64 {
         self.len() as f64
     }

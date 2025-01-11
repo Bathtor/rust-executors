@@ -95,11 +95,11 @@ impl CanExecute for ThreadPoolExecutor {
         if self.active.load(Ordering::SeqCst) {
             #[cfg(feature = "produce-metrics")]
             let job = {
-                increment_gauge!("executors.jobs_queued", 1.0, "executor" => std::any::type_name::<ThreadPoolExecutor>());
+                gauge!("executors.jobs_queued", "executor" => std::any::type_name::<ThreadPoolExecutor>()).increment(1.0);
                 Box::new(move || {
                     job();
-                    increment_counter!("executors.jobs_executed", "executor" => std::any::type_name::<ThreadPoolExecutor>());
-                    decrement_gauge!("executors.jobs_queued", 1.0, "executor" => std::any::type_name::<ThreadPoolExecutor>());
+                    counter!("executors.jobs_executed", "executor" => std::any::type_name::<ThreadPoolExecutor>()).increment(1);
+                    gauge!("executors.jobs_queued", "executor" => std::any::type_name::<ThreadPoolExecutor>()).decrement(1.0);
                 })
             };
 
@@ -119,11 +119,11 @@ impl Executor for ThreadPoolExecutor {
         if self.active.load(Ordering::SeqCst) {
             #[cfg(feature = "produce-metrics")]
             let job = {
-                increment_gauge!("executors.jobs_queued", 1.0, "executor" => std::any::type_name::<ThreadPoolExecutor>());
+                gauge!("executors.jobs_queued", "executor" => std::any::type_name::<ThreadPoolExecutor>()).increment(1.0);
                 move || {
                     job();
-                    increment_counter!("executors.jobs_executed", "executor" => std::any::type_name::<ThreadPoolExecutor>());
-                    decrement_gauge!("executors.jobs_queued", 1.0, "executor" => std::any::type_name::<ThreadPoolExecutor>());
+                    counter!("executors.jobs_executed", "executor" => std::any::type_name::<ThreadPoolExecutor>()).increment(1);
+                    gauge!("executors.jobs_queued", "executor" => std::any::type_name::<ThreadPoolExecutor>()).decrement(1.0);
                 }
             };
 
@@ -162,8 +162,14 @@ impl Executor for ThreadPoolExecutor {
 
     #[cfg(feature = "produce-metrics")]
     fn register_metrics(&self) {
-        register_counter!("executors.jobs_executed", "The total number of jobs that were executed", "executor" => std::any::type_name::<ThreadPoolExecutor>());
-        register_gauge!("executors.jobs_queued", "The number of jobs that are currently waiting to be executed", "executor" => std::any::type_name::<ThreadPoolExecutor>());
+        describe_counter!(
+            "executors.jobs_executed",
+            "The total number of jobs that were executed"
+        );
+        describe_gauge!(
+            "executors.jobs_queued",
+            "The number of jobs that are currently waiting to be executed"
+        );
     }
 }
 

@@ -31,7 +31,7 @@ where
     F: FnOnce() + Send + 'static,
 {
     LOCAL_EXECUTOR.with(move |e| {
-        if let Some(&Some(ref boxed)) = unsafe { e.get().as_ref() } {
+        if let Some(Some(boxed)) = unsafe { e.get().as_ref() } {
             boxed.execute_job(Box::new(f));
             Ok(())
         } else {

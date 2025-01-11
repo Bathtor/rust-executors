@@ -234,7 +234,7 @@ mod spawn_many {
                 });
             }
 
-            let _ = rx.recv().unwrap();
+            rx.recv().unwrap();
         });
 
         rt.shutdown().expect("shutdown");
@@ -260,7 +260,7 @@ mod spawn_many {
                     .detach();
                 }
 
-                let _ = rx.recv().unwrap();
+                rx.recv().unwrap();
             });
         });
 
@@ -387,7 +387,7 @@ mod ping_pong {
 
             let res = done_rx.recv_timeout(Duration::from_millis(5000));
             assert!(
-                !res.is_err(),
+                res.is_ok(),
                 "done_rx timeouted within 5s. Remaining={}",
                 outer_rem.load(SeqCst)
             );

@@ -11,14 +11,6 @@ use crate::stats::Stats;
 use std::{default::Default, sync::Arc, thread, time::Duration};
 use synchronoise::CountdownEvent;
 
-#[cfg(feature = "nightly")]
-use test::black_box;
-
-#[cfg(not(feature = "nightly"))]
-fn black_box<T>(dummy: T) -> T {
-    dummy
-}
-
 const PRE_WORK: u64 = 10;
 const POST_WORK: u64 = 10;
 
@@ -185,7 +177,7 @@ fn do_work(n: u64) -> u64 {
 
 fn amplify<E: Executor + 'static>(exec: E, remaining: u64) {
     black_box(do_work(POST_WORK));
-    if (remaining > 0) {
+    if remaining > 0 {
         let amp_exec = exec.clone();
         exec.execute(move || amplify(amp_exec, remaining - 1));
     }
@@ -194,7 +186,7 @@ fn amplify<E: Executor + 'static>(exec: E, remaining: u64) {
 
 fn amplify_finish<E: Executor + 'static>(exec: E, finisher: Finisher, remaining: u64) {
     black_box(do_work(PRE_WORK));
-    if (remaining > 0) {
+    if remaining > 0 {
         let amp_exec = exec.clone();
         exec.execute(move || amplify_finish(amp_exec, finisher, remaining - 1));
         black_box(do_work(POST_WORK));

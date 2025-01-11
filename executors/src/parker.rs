@@ -294,11 +294,14 @@ impl ThreadData for SmallThreadData {
 
     fn init(&self, thread_id: usize) -> () {
         assert!(thread_id < 32);
-        match self.sleeping.lock() { Ok(mut guard) => {
-            guard[thread_id] = ParkState::Awake;
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
+        match self.sleeping.lock() {
+            Ok(mut guard) => {
+                guard[thread_id] = ParkState::Awake;
+            }
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
     }
 
     fn prepare_park(&self, thread_id: usize) -> () {
@@ -313,39 +316,45 @@ impl ThreadData for SmallThreadData {
 
     fn park(&self, thread_id: usize) -> ParkResult {
         assert!(thread_id < 32);
-        match self.sleeping.try_lock() { Ok(mut guard) => {
-            //self.sleep_set.set_at(thread_id);
-            match guard[thread_id] {
-                ParkState::Awake => {
-                    guard[thread_id] = ParkState::Asleep(std::thread::current());
+        match self.sleeping.try_lock() {
+            Ok(mut guard) => {
+                //self.sleep_set.set_at(thread_id);
+                match guard[thread_id] {
+                    ParkState::Awake => {
+                        guard[thread_id] = ParkState::Asleep(std::thread::current());
+                    }
+                    ParkState::Asleep(_) => unreachable!("Threads must clean up after waking up!"),
+                    ParkState::NoSleep => {
+                        self.sleep_set.unset_at(thread_id);
+                        guard[thread_id] = ParkState::Awake;
+                        return ParkResult::Abort;
+                    }
+                    ParkState::Waking => unreachable!("Threads must clean up after waking up!"),
                 }
-                ParkState::Asleep(_) => unreachable!("Threads must clean up after waking up!"),
-                ParkState::NoSleep => {
-                    self.sleep_set.unset_at(thread_id);
-                    guard[thread_id] = ParkState::Awake;
-                    return ParkResult::Abort;
-                }
-                ParkState::Waking => unreachable!("Threads must clean up after waking up!"),
             }
-        } _ => {
-            return ParkResult::Retry; // if the lock can't be acquired, don't park, because maybe a client is trying to wake up things anyway
-        }}
+            _ => {
+                return ParkResult::Retry; // if the lock can't be acquired, don't park, because maybe a client is trying to wake up things anyway
+            }
+        }
         thread::park();
-        match self.sleeping.lock() { Ok(mut guard) => {
-            self.sleep_set.unset_at(thread_id);
-            match guard[thread_id] {
-                ParkState::Awake => unreachable!("Threads must be asleep to wake from park!"),
-                ParkState::Waking | ParkState::Asleep(_) => {
-                    guard[thread_id] = ParkState::Awake;
-                    ParkResult::Woken
-                }
-                ParkState::NoSleep => {
-                    unreachable!("Threads must be awake to be prevented from sleeping!");
+        match self.sleeping.lock() {
+            Ok(mut guard) => {
+                self.sleep_set.unset_at(thread_id);
+                match guard[thread_id] {
+                    ParkState::Awake => unreachable!("Threads must be asleep to wake from park!"),
+                    ParkState::Waking | ParkState::Asleep(_) => {
+                        guard[thread_id] = ParkState::Awake;
+                        ParkResult::Woken
+                    }
+                    ParkState::NoSleep => {
+                        unreachable!("Threads must be awake to be prevented from sleeping!");
+                    }
                 }
             }
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
     }
 
     #[inline(always)]
@@ -354,58 +363,64 @@ impl ThreadData for SmallThreadData {
     }
 
     fn unpark_one(&self) -> () {
-        match self.sleeping.lock() { Ok(mut guard) => {
-            if let Ok(index) = self.sleep_set.get_lowest() {
-                match guard[index] {
-                    // Thread is just about to go sleep, but I got lock first
-                    ParkState::Awake => {
-                        // Prevent the thread from going to sleep
-                        guard[index] = ParkState::NoSleep;
-                    }
-                    ParkState::Asleep(ref t) => {
-                        t.unpark();
-                        guard[index] = ParkState::Waking;
-                    }
-                    // Another client already unparked this one or prevented it from going to sleep
-                    ParkState::Waking | ParkState::NoSleep => {
-                        // Try to find another thread to wake up
-                        for index in 0..32 {
-                            if let ParkState::Asleep(ref t) = guard[index] {
-                                t.unpark();
-                                guard[index] = ParkState::Waking;
-                                return;
-                            }
-                        }
-                    }
-                }
-            } // else just return, as nothing is sleeping or trying to go to sleep
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
-    }
-
-    fn unpark_all(&self) -> () {
-        match self.sleeping.lock() { Ok(mut guard) => {
-            if !self.all_awake() {
-                for index in 0..32 {
+        match self.sleeping.lock() {
+            Ok(mut guard) => {
+                if let Ok(index) = self.sleep_set.get_lowest() {
                     match guard[index] {
+                        // Thread is just about to go sleep, but I got lock first
                         ParkState::Awake => {
-                            // Prevent all awake thread from going to sleep
+                            // Prevent the thread from going to sleep
                             guard[index] = ParkState::NoSleep;
                         }
                         ParkState::Asleep(ref t) => {
-                            // Wake up all sleeping threads
                             t.unpark();
                             guard[index] = ParkState::Waking;
                         }
-                        // Leave these as they are
-                        ParkState::NoSleep | ParkState::Waking => (),
+                        // Another client already unparked this one or prevented it from going to sleep
+                        ParkState::Waking | ParkState::NoSleep => {
+                            // Try to find another thread to wake up
+                            for index in 0..32 {
+                                if let ParkState::Asleep(ref t) = guard[index] {
+                                    t.unpark();
+                                    guard[index] = ParkState::Waking;
+                                    return;
+                                }
+                            }
+                        }
                     }
-                }
-            } // else just return, as nothing is sleeping or trying to go to sleep
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
+                } // else just return, as nothing is sleeping or trying to go to sleep
+            }
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
+    }
+
+    fn unpark_all(&self) -> () {
+        match self.sleeping.lock() {
+            Ok(mut guard) => {
+                if !self.all_awake() {
+                    for index in 0..32 {
+                        match guard[index] {
+                            ParkState::Awake => {
+                                // Prevent all awake thread from going to sleep
+                                guard[index] = ParkState::NoSleep;
+                            }
+                            ParkState::Asleep(ref t) => {
+                                // Wake up all sleeping threads
+                                t.unpark();
+                                guard[index] = ParkState::Waking;
+                            }
+                            // Leave these as they are
+                            ParkState::NoSleep | ParkState::Waking => (),
+                        }
+                    }
+                } // else just return, as nothing is sleeping or trying to go to sleep
+            }
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
     }
 }
 
@@ -441,11 +456,14 @@ impl ThreadData for LargeThreadData {
 
     fn init(&self, thread_id: usize) -> () {
         assert!(thread_id < 64);
-        match self.sleeping.lock() { Ok(mut guard) => {
-            guard[thread_id] = ParkState::Awake;
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
+        match self.sleeping.lock() {
+            Ok(mut guard) => {
+                guard[thread_id] = ParkState::Awake;
+            }
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
     }
 
     fn prepare_park(&self, thread_id: usize) -> () {
@@ -460,39 +478,45 @@ impl ThreadData for LargeThreadData {
 
     fn park(&self, thread_id: usize) -> ParkResult {
         assert!(thread_id < 64);
-        match self.sleeping.try_lock() { Ok(mut guard) => {
-            //self.sleep_set.set_at(thread_id);
-            match guard[thread_id] {
-                ParkState::Awake => {
-                    guard[thread_id] = ParkState::Asleep(std::thread::current());
+        match self.sleeping.try_lock() {
+            Ok(mut guard) => {
+                //self.sleep_set.set_at(thread_id);
+                match guard[thread_id] {
+                    ParkState::Awake => {
+                        guard[thread_id] = ParkState::Asleep(std::thread::current());
+                    }
+                    ParkState::Asleep(_) => unreachable!("Threads must clean up after waking up!"),
+                    ParkState::NoSleep => {
+                        self.sleep_set.unset_at(thread_id);
+                        guard[thread_id] = ParkState::Awake;
+                        return ParkResult::Abort;
+                    }
+                    ParkState::Waking => unreachable!("Threads must clean up after waking up!"),
                 }
-                ParkState::Asleep(_) => unreachable!("Threads must clean up after waking up!"),
-                ParkState::NoSleep => {
-                    self.sleep_set.unset_at(thread_id);
-                    guard[thread_id] = ParkState::Awake;
-                    return ParkResult::Abort;
-                }
-                ParkState::Waking => unreachable!("Threads must clean up after waking up!"),
             }
-        } _ => {
-            return ParkResult::Retry; // if the lock can't be acquired, don't park, because maybe a client is trying to wake up things anyway
-        }}
+            _ => {
+                return ParkResult::Retry; // if the lock can't be acquired, don't park, because maybe a client is trying to wake up things anyway
+            }
+        }
         thread::park();
-        match self.sleeping.lock() { Ok(mut guard) => {
-            self.sleep_set.unset_at(thread_id);
-            match guard[thread_id] {
-                ParkState::Awake => unreachable!("Threads must be asleep to wake from park!"),
-                ParkState::Waking | ParkState::Asleep(_) => {
-                    guard[thread_id] = ParkState::Awake;
-                    ParkResult::Woken
-                }
-                ParkState::NoSleep => {
-                    unreachable!("Threads must be awake to be prevented from sleeping!");
+        match self.sleeping.lock() {
+            Ok(mut guard) => {
+                self.sleep_set.unset_at(thread_id);
+                match guard[thread_id] {
+                    ParkState::Awake => unreachable!("Threads must be asleep to wake from park!"),
+                    ParkState::Waking | ParkState::Asleep(_) => {
+                        guard[thread_id] = ParkState::Awake;
+                        ParkResult::Woken
+                    }
+                    ParkState::NoSleep => {
+                        unreachable!("Threads must be awake to be prevented from sleeping!");
+                    }
                 }
             }
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
     }
 
     #[inline(always)]
@@ -501,58 +525,64 @@ impl ThreadData for LargeThreadData {
     }
 
     fn unpark_one(&self) -> () {
-        match self.sleeping.lock() { Ok(mut guard) => {
-            if let Ok(index) = self.sleep_set.get_lowest() {
-                match guard[index] {
-                    // Thread is just about to go sleep, but I got lock first
-                    ParkState::Awake => {
-                        // Prevent the thread from going to sleep
-                        guard[index] = ParkState::NoSleep;
-                    }
-                    ParkState::Asleep(ref t) => {
-                        t.unpark();
-                        guard[index] = ParkState::Waking;
-                    }
-                    // Another client already unparked this one or prevented it from going to sleep
-                    ParkState::Waking | ParkState::NoSleep => {
-                        // Try to find another thread to wake up
-                        for index in 0..64 {
-                            if let ParkState::Asleep(ref t) = guard[index] {
-                                t.unpark();
-                                guard[index] = ParkState::Waking;
-                                return;
-                            }
-                        }
-                    }
-                }
-            } // else just return, as nothing is sleeping or trying to go to sleep
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
-    }
-
-    fn unpark_all(&self) -> () {
-        match self.sleeping.lock() { Ok(mut guard) => {
-            if !self.all_awake() {
-                for index in 0..64 {
+        match self.sleeping.lock() {
+            Ok(mut guard) => {
+                if let Ok(index) = self.sleep_set.get_lowest() {
                     match guard[index] {
+                        // Thread is just about to go sleep, but I got lock first
                         ParkState::Awake => {
-                            // Prevent all awake thread from going to sleep
+                            // Prevent the thread from going to sleep
                             guard[index] = ParkState::NoSleep;
                         }
                         ParkState::Asleep(ref t) => {
-                            // Wake up all sleeping threads
                             t.unpark();
                             guard[index] = ParkState::Waking;
                         }
-                        // Leave these as they are
-                        ParkState::NoSleep | ParkState::Waking => (),
+                        // Another client already unparked this one or prevented it from going to sleep
+                        ParkState::Waking | ParkState::NoSleep => {
+                            // Try to find another thread to wake up
+                            for index in 0..64 {
+                                if let ParkState::Asleep(ref t) = guard[index] {
+                                    t.unpark();
+                                    guard[index] = ParkState::Waking;
+                                    return;
+                                }
+                            }
+                        }
                     }
-                }
-            } // else just return, as no is sleeping or trying to sleep
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
+                } // else just return, as nothing is sleeping or trying to go to sleep
+            }
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
+    }
+
+    fn unpark_all(&self) -> () {
+        match self.sleeping.lock() {
+            Ok(mut guard) => {
+                if !self.all_awake() {
+                    for index in 0..64 {
+                        match guard[index] {
+                            ParkState::Awake => {
+                                // Prevent all awake thread from going to sleep
+                                guard[index] = ParkState::NoSleep;
+                            }
+                            ParkState::Asleep(ref t) => {
+                                // Wake up all sleeping threads
+                                t.unpark();
+                                guard[index] = ParkState::Waking;
+                            }
+                            // Leave these as they are
+                            ParkState::NoSleep | ParkState::Waking => (),
+                        }
+                    }
+                } // else just return, as no is sleeping or trying to sleep
+            }
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
     }
 }
 
@@ -599,12 +629,15 @@ impl ThreadData for DynamicThreadData {
     }
 
     fn init(&self, thread_id: usize) -> () {
-        match self.data.lock() { Ok(mut guard) => {
-            // Doesn't matter if it was there or not
-            let _ = guard.sleeping.remove(&thread_id);
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
+        match self.data.lock() {
+            Ok(mut guard) => {
+                // Doesn't matter if it was there or not
+                let _ = guard.sleeping.remove(&thread_id);
+            }
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
     }
 
     fn prepare_park(&self, _thread_id: usize) -> () {
@@ -618,39 +651,45 @@ impl ThreadData for DynamicThreadData {
     }
 
     fn park(&self, thread_id: usize) -> ParkResult {
-        match self.data.try_lock() { Ok(mut guard) => {
-            if guard.no_sleep == 0 {
-                let old = guard
-                    .sleeping
-                    .insert(thread_id, ParkState::Asleep(std::thread::current()));
-                if old.is_some() {
-                    unreachable!("Inconsistent sleeping map (before park)!");
+        match self.data.try_lock() {
+            Ok(mut guard) => {
+                if guard.no_sleep == 0 {
+                    let old = guard
+                        .sleeping
+                        .insert(thread_id, ParkState::Asleep(std::thread::current()));
+                    if old.is_some() {
+                        unreachable!("Inconsistent sleeping map (before park)!");
+                    }
+                } else {
+                    //println!("Aborting park due to no_sleep {}", thread_id);
+                    guard.no_sleep -= 1; // must be >0 because we hold the lock
+                    self.sleep_count.fetch_sub(1usize, Ordering::SeqCst);
+                    return ParkResult::Abort;
                 }
-            } else {
-                //println!("Aborting park due to no_sleep {}", thread_id);
-                guard.no_sleep -= 1; // must be >0 because we hold the lock
-                self.sleep_count.fetch_sub(1usize, Ordering::SeqCst);
-                return ParkResult::Abort;
             }
-        } _ => {
-            return ParkResult::Retry; // if the lock can't be acquired, don't park, because maybe a client is trying to wake up things anyway
-        }}
+            _ => {
+                return ParkResult::Retry; // if the lock can't be acquired, don't park, because maybe a client is trying to wake up things anyway
+            }
+        }
         //println!("Parking {}", thread_id);
         thread::park();
         //println!("Not parking {} anymore, but waiting for lock.", thread_id);
-        match self.data.lock() { Ok(mut guard) => {
-            //println!("Got lock.");
-            self.sleep_count.fetch_sub(1usize, Ordering::SeqCst);
-            guard
-                .sleeping
-                .remove(&thread_id)
-                .expect("Inconsistent sleeping map (after park)!");
-            //println!("Woke {}", thread_id);
-            ParkResult::Woken
-        } _ => {
-            //eprintln!("Fuck, I'll panic!");
-            panic!("Mutex is poisoned!");
-        }}
+        match self.data.lock() {
+            Ok(mut guard) => {
+                //println!("Got lock.");
+                self.sleep_count.fetch_sub(1usize, Ordering::SeqCst);
+                guard
+                    .sleeping
+                    .remove(&thread_id)
+                    .expect("Inconsistent sleeping map (after park)!");
+                //println!("Woke {}", thread_id);
+                ParkResult::Woken
+            }
+            _ => {
+                //eprintln!("Fuck, I'll panic!");
+                panic!("Mutex is poisoned!");
+            }
+        }
     }
 
     #[inline(always)]
@@ -659,53 +698,59 @@ impl ThreadData for DynamicThreadData {
     }
 
     fn unpark_one(&self) -> () {
-        match self.data.lock() { Ok(mut guard) => {
-            if self.sleep_count.load(Ordering::SeqCst) > 0usize {
-                for state in guard.sleeping.values_mut() {
-                    //println!("Hanging on to the lock (one) {}...", count);
-                    match state {
-                        ParkState::Asleep(t) => {
-                            //println!("Unparking {:?}", t);
-                            t.unpark();
-                            *state = ParkState::Waking;
-                            return;
-                        }
-                        ParkState::Waking => (), // skip
-                        ParkState::Awake | ParkState::NoSleep => {
-                            unreachable!("These should not be in the map at all!");
+        match self.data.lock() {
+            Ok(mut guard) => {
+                if self.sleep_count.load(Ordering::SeqCst) > 0usize {
+                    for state in guard.sleeping.values_mut() {
+                        //println!("Hanging on to the lock (one) {}...", count);
+                        match state {
+                            ParkState::Asleep(t) => {
+                                //println!("Unparking {:?}", t);
+                                t.unpark();
+                                *state = ParkState::Waking;
+                                return;
+                            }
+                            ParkState::Waking => (), // skip
+                            ParkState::Awake | ParkState::NoSleep => {
+                                unreachable!("These should not be in the map at all!");
+                            }
                         }
                     }
-                }
-                //println!("Preventing a thread from going to sleep.");
-                // no one to wake -> prevent next thread from going to sleep
-                guard.no_sleep = guard.no_sleep.saturating_add(1); // don't overflow this during shutdown
-            } // no one is sleeping, nothing to do
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
+                    //println!("Preventing a thread from going to sleep.");
+                    // no one to wake -> prevent next thread from going to sleep
+                    guard.no_sleep = guard.no_sleep.saturating_add(1); // don't overflow this during shutdown
+                } // no one is sleeping, nothing to do
+            }
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
     }
 
     fn unpark_all(&self) -> () {
-        match self.data.lock() { Ok(mut guard) => {
-            if self.sleep_count.load(Ordering::SeqCst) > 0usize {
-                for state in guard.sleeping.values_mut() {
-                    //println!("Hanging on to the lock (all)...");
-                    match state {
-                        ParkState::Asleep(t) => {
-                            t.unpark();
-                            *state = ParkState::Waking;
-                        }
-                        ParkState::Waking => (), // skip
-                        ParkState::Awake | ParkState::NoSleep => {
-                            unreachable!("These should not be in the map at all!");
+        match self.data.lock() {
+            Ok(mut guard) => {
+                if self.sleep_count.load(Ordering::SeqCst) > 0usize {
+                    for state in guard.sleeping.values_mut() {
+                        //println!("Hanging on to the lock (all)...");
+                        match state {
+                            ParkState::Asleep(t) => {
+                                t.unpark();
+                                *state = ParkState::Waking;
+                            }
+                            ParkState::Waking => (), // skip
+                            ParkState::Awake | ParkState::NoSleep => {
+                                unreachable!("These should not be in the map at all!");
+                            }
                         }
                     }
-                }
-                guard.no_sleep = std::usize::MAX; // with no concrete idea of who is going to sleep, this is the only way we can prevent them from doing so -.-
-            } // no one is sleeping, nothing to do
-        } _ => {
-            panic!("Mutex is poisoned!");
-        }}
+                    guard.no_sleep = usize::MAX; // with no concrete idea of who is going to sleep, this is the only way we can prevent them from doing so -.-
+                } // no one is sleeping, nothing to do
+            }
+            _ => {
+                panic!("Mutex is poisoned!");
+            }
+        }
     }
 }
 

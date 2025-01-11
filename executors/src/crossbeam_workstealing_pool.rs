@@ -27,10 +27,10 @@
 //! There are two ways of managing fairness between local and global queues:
 //!
 //! - Timeout based: Check global queue at most every 1ms
-//! (activated via the `ws-timed-fairness` feature, which is in the
-//! default feature set)
+//!   (activated via the `ws-timed-fairness` feature, which is in the
+//!   default feature set)
 //! - Job count based: Check global every 100 local jobs
-//! (used if the `ws-timed-fairness` feature is disabled)
+//!   (used if the `ws-timed-fairness` feature is disabled)
 //!
 //! Timeout based fairness is more predictable, as it is less dependent
 //! on the job execution time. But if a platform implementation of
@@ -166,7 +166,8 @@ const MAX_WAIT_SHUTDOWN_MS: u64 = 5 * (timeconstants::MS_PER_S as u64);
 // UnsafeCell has 10x the performance of RefCell
 // and the scoping guarantees that the borrows are exclusive
 thread_local!(
-    static LOCAL_JOB_QUEUE: UnsafeCell<Option<deque::Worker<Job>>> = UnsafeCell::new(Option::None);
+    static LOCAL_JOB_QUEUE: UnsafeCell<Option<deque::Worker<Job>>> =
+        const { UnsafeCell::new(Option::None) };
 );
 
 /// Try to append the job to the thread-local job queue
@@ -184,7 +185,8 @@ where
                 q.push(msg);
 
                 #[cfg(feature = "produce-metrics")]
-                increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
+                gauge!("executors.jobs_queued", "executor" => "crossbeam_workstealing_pool")
+                    .increment(1.0);
 
                 Ok(())
             }
@@ -413,7 +415,8 @@ where
                     q.push(msg);
 
                     #[cfg(feature = "produce-metrics")]
-                    increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
+                    gauge!("executors.jobs_queued", "executor" => "crossbeam_workstealing_pool")
+                        .increment(1.0);
                 }
                 None => {
                     debug!("Scheduling on global pool.");
@@ -423,7 +426,8 @@ where
                     self.inner.parker.unpark_one();
 
                     #[cfg(feature = "produce-metrics")]
-                    increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
+                    gauge!("executors.jobs_queued", "executor" => "crossbeam_workstealing_pool")
+                        .increment(1.0);
                 }
             }
         })
@@ -456,7 +460,7 @@ where
                         q.push(msg);
 
                         #[cfg(feature = "produce-metrics")]
-                        increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
+                        gauge!("executors.jobs_queued", "executor" => "crossbeam_workstealing_pool").increment(1.0);
                     }
                     None => {
                         debug!("Scheduling on global pool.");
@@ -466,7 +470,7 @@ where
                         self.inner.parker.unpark_one();
 
                         #[cfg(feature = "produce-metrics")]
-                        increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
+                        gauge!("executors.jobs_queued", "executor" => "crossbeam_workstealing_pool").increment(1.0);
                     }
                 }
             })
@@ -525,8 +529,14 @@ where
 
     #[cfg(feature = "produce-metrics")]
     fn register_metrics(&self) {
-        register_counter!("executors.jobs_executed", "The total number of jobs that were executed", "executor" => "crossbeam_workstealing_pool");
-        register_gauge!("executors.jobs_queued", "The number of jobs that are currently waiting to be executed", "executor" => "crossbeam_workstealing_pool");
+        describe_counter!(
+            "executors.jobs_executed",
+            "The total number of jobs that were executed"
+        );
+        describe_gauge!(
+            "executors.jobs_queued",
+            "The number of jobs that are currently waiting to be executed"
+        );
     }
 }
 
@@ -661,8 +671,7 @@ impl ThreadPoolCore {
         let stealers: Vec<JobStealer> = self
             .workers
             .values()
-            .filter(|w| w.stealer.is_some())
-            .map(|w| w.stealer.clone().unwrap())
+            .filter_map(|w| w.stealer.clone())
             .collect();
         for (wid, worker) in self.workers.iter() {
             let l: Vec<JobStealer> = stealers
@@ -688,7 +697,8 @@ impl CanExecute for ThreadLocalExecute {
                     q.push(msg);
 
                     #[cfg(feature = "produce-metrics")]
-                    increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
+                    gauge!("executors.jobs_queued", "executor" => "crossbeam_workstealing_pool")
+                        .increment(1.0);
                 }
                 None => {
                     unreachable!("Local Executor was set but local job queue was not!");
@@ -850,8 +860,8 @@ where
 
                     #[cfg(feature = "produce-metrics")]
                     {
-                        counter!("executors.jobs_executed", count, "executor" => "crossbeam_workstealing_pool", "thread_id" => format!("{}", self.id()));
-                        decrement_gauge!("executors.jobs_queued", count as f64, "executor" => "crossbeam_workstealing_pool");
+                        counter!("executors.jobs_executed", "executor" => "crossbeam_workstealing_pool", "thread_id" => format!("{}", self.id())).increment(count);
+                        gauge!("executors.jobs_queued",  "executor" => "crossbeam_workstealing_pool").decrement(count as f64);
                     }
                 } _ => {
                     panic!("Queue should have been initialised!");
@@ -897,11 +907,12 @@ where
             }
             // sometimes try the global queue
             let glob_res = LOCAL_JOB_QUEUE.with(|q| unsafe {
-                match *q.get() { Some(ref local_queue) => {
-                    core.global_sender.steal_batch_and_pop(local_queue)
-                } _ => {
-                    panic!("Queue should have been initialised!");
-                }}
+                match *q.get() {
+                    Some(ref local_queue) => core.global_sender.steal_batch_and_pop(local_queue),
+                    _ => {
+                        panic!("Queue should have been initialised!");
+                    }
+                }
             });
             if let deque::Steal::Success(msg) = glob_res {
                 msg.run();
@@ -919,8 +930,9 @@ where
 
                 #[cfg(feature = "produce-metrics")]
                 {
-                    increment_counter!("executors.jobs_executed", "executor" => "crossbeam_workstealing_pool", "thread_id" => format!("{}", self.id()));
-                    decrement_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_workstealing_pool");
+                    counter!("executors.jobs_executed", "executor" => "crossbeam_workstealing_pool", "thread_id" => format!("{}", self.id())).increment(1);
+                    gauge!("executors.jobs_queued", "executor" => "crossbeam_workstealing_pool")
+                        .decrement(1.0);
                 }
 
                 continue 'main;
@@ -1021,7 +1033,7 @@ where
                     let weight = if let Some(stealer_id) = stealer.core_id() {
                         distances.distance(my_id, *stealer_id)
                     } else {
-                        std::i32::MIN
+                        i32::MIN
                     };
                     (weight, stealer)
                 })

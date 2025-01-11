@@ -200,7 +200,7 @@ impl CanExecute for ThreadPool {
                 .unwrap_or_else(|e| error!("Error submitting job: {:?}", e));
 
             #[cfg(feature = "produce-metrics")]
-            increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_channel_pool");
+            gauge!("executors.jobs_queued", "executor" => "crossbeam_channel_pool").increment(1.0);
         } else {
             warn!("Ignoring job as pool is shutting down.");
         }
@@ -257,8 +257,14 @@ impl Executor for ThreadPool {
 
     #[cfg(feature = "produce-metrics")]
     fn register_metrics(&self) {
-        register_counter!("executors.jobs_executed", "The total number of jobs that were executed", "executor" => "crossbeam_channel_pool");
-        register_gauge!("executors.jobs_queued", "The number of jobs that are currently waiting to be executed", "executor" => "crossbeam_channel_pool");
+        describe_counter!(
+            "executors.jobs_executed",
+            "The total number of jobs that were executed"
+        );
+        describe_gauge!(
+            "executors.jobs_queued",
+            "The number of jobs that are currently waiting to be executed"
+        );
     }
 }
 
@@ -359,7 +365,7 @@ impl CanExecute for ThreadLocalExecute {
             .unwrap_or_else(|e| error!("Error submitting Job: {:?}", e));
 
         #[cfg(feature = "produce-metrics")]
-        increment_gauge!("executors.jobs_queued", 1.0, "executor" => "crossbeam_channel_pool");
+        gauge!("executors.jobs_queued", "executor" => "crossbeam_channel_pool").increment(1.0);
     }
 }
 
@@ -404,8 +410,9 @@ impl ThreadPoolWorker {
                     {
                         executed_since_check += 1u64;
                         if last_metrics_check.elapsed() > METRICS_INTERVAL {
-                            counter!("executors.jobs_executed", executed_since_check, "executor" => "crossbeam_channel_pool", "thread_id" => format!("{}", self.id));
-                            decrement_gauge!("executors.jobs_queued", executed_since_check as f64, "executor" => "crossbeam_channel_pool");
+                            counter!("executors.jobs_executed", "executor" => "crossbeam_channel_pool", "thread_id" => format!("{}", self.id)).increment(executed_since_check);
+                            gauge!("executors.jobs_queued", "executor" => "crossbeam_channel_pool")
+                                .decrement(executed_since_check as f64);
                             executed_since_check = 0u64;
                             last_metrics_check = std::time::Instant::now();
                         }
@@ -418,8 +425,9 @@ impl ThreadPoolWorker {
                     {
                         executed_since_check += 1u64;
                         if last_metrics_check.elapsed() > METRICS_INTERVAL {
-                            counter!("executors.jobs_executed", executed_since_check, "executor" => "crossbeam_channel_pool", "thread_id" => format!("{}", self.id));
-                            decrement_gauge!("executors.jobs_queued", executed_since_check as f64, "executor" => "crossbeam_channel_pool");
+                            counter!("executors.jobs_executed", "executor" => "crossbeam_channel_pool", "thread_id" => format!("{}", self.id)).increment(executed_since_check);
+                            gauge!("executors.jobs_queued", "executor" => "crossbeam_channel_pool")
+                                .decrement(executed_since_check as f64);
                             executed_since_check = 0u64;
                             last_metrics_check = std::time::Instant::now();
                         }
