@@ -3,9 +3,9 @@ name = "executors"
 # NB: When modifying, also modify:
 #   1. html_root_url in lib.rs
 #   2. number in readme (for breaking changes)
-version = "0.9.0"
+version = "0.10.0"
 authors = ["Lars Kroll <lkroll@kth.se>"]
-edition = "2018"
+edition = "2021"
 description = "A collection of high-performance task executors."
 documentation = "https://docs.rs/executors"
 homepage = "https://github.com/Bathtor/rust-executors"
@@ -16,11 +16,23 @@ categories = ["concurrency", "asynchronous"]
 license = "MIT"
 
 [features]
-default = ["threadpool-exec", "cb-channel-exec", "workstealing-exec", "ws-timed-fairness", "defaults"]
+default = [
+    "threadpool-exec",
+    "cb-channel-exec",
+    "workstealing-exec",
+    "ws-timed-fairness",
+    "defaults",
+]
 
 threadpool-exec = ["threadpool"]
 cb-channel-exec = ["crossbeam-channel", "async-task"]
-workstealing-exec = ["crossbeam-channel", "crossbeam-deque", "rand", "crossbeam-utils", "async-task"]
+workstealing-exec = [
+    "crossbeam-channel",
+    "crossbeam-deque",
+    "rand",
+    "crossbeam-utils",
+    "async-task",
+]
 defaults = ["num_cpus"]
 
 # In the workstealing executor, check the global queues every 1ms
@@ -37,34 +49,34 @@ produce-metrics = ["metrics"]
 
 
 [dependencies]
-log 				= "0.4"
-synchronoise 		= "1.0"
-arr_macro 			= "0.1"
-crossbeam-channel 	= {version = "0.5", optional = true}
-threadpool 			= {version = "1.8", optional = true}
-crossbeam-utils 	= {version = "0.8", optional = true}
-crossbeam-deque 	= {version = "0.8", optional = true}
-rand 				= {version = "0.8", optional = true}
-num_cpus 			= {version = "1", optional = true}
-core_affinity 		= {version = "0.5", optional = true}
-async-task 			= {version = "4.0", optional = true}
-metrics 			= {version = "0.17", optional = true}
+log = "0.4"
+synchronoise = "1.0"
+arr_macro = "0.2"
+crossbeam-channel = { version = "0.5", optional = true }
+threadpool = { version = "1.8", optional = true }
+crossbeam-utils = { version = "0.8", optional = true }
+crossbeam-deque = { version = "0.8", optional = true }
+rand = { version = "0.8", optional = true }
+num_cpus = { version = "1", optional = true }
+core_affinity = { version = "0.8", optional = true }
+async-task = { version = "4.0", optional = true }
+metrics = { version = "0.24", optional = true }
 # reintroduce once hwloc is more stable or replace if there's an alternative
 #hwloc2 				= {version = "2.2", optional = true}
 
 [dev-dependencies]
-env_logger 			= "0.9"
-version-sync 		= "0.9"
-criterion 			= "0.3"
-futures 			= "0.3"
-metrics_printer		= "0.1"
+env_logger = "0.11"
+version-sync = "0.9"
+criterion = "0.5"
+futures = "0.3"
+metrics_printer = "0.1"
 
 
 [badges]
 # Maintenance: `status` is required Available options are `actively-developed`,
 # `passively-maintained`, `as-is`, `none`, `experimental`, `looking-for-maintainer`
 # and `deprecated`.
-maintenance = { status = "actively-developed" }
+maintenance = { status = "passively-maintained" }
 
 [[bench]]
 name = "scheduler"

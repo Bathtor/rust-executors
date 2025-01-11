@@ -1,12 +1,15 @@
 name: Codecov
 on:
+  # Temporarily disabled
   push:
-    branches:
-      - master
   pull_request:
-    branches:
-      - master
-    types: [opened, reopened, synchronize]
+  # push:
+  #   branches:
+  #     - master
+  # pull_request:
+  #   branches:
+  #     - master
+  #   types: [opened, reopened, synchronize]
 
 jobs:
   codecov-grcov:
