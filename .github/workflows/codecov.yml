@@ -1,8 +1,7 @@
 name: Codecov
 on:
   # Temporarily disabled
-  push:
-  pull_request:
+  workflow_dispatch:
   # push:
   #   branches:
   #     - master
