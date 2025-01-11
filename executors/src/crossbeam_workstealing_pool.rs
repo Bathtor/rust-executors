@@ -817,7 +817,7 @@ where
             let next_global_check = Instant::now() + Duration::new(0, CHECK_GLOBAL_INTERVAL_NS);
             // Try the local queue usually
             LOCAL_JOB_QUEUE.with(|q| unsafe {
-                if let Some(ref local_queue) = *q.get() {
+                match *q.get() { Some(ref local_queue) => {
 
                     #[allow(unused_variables)]
                     let mut count = 0u64;
@@ -853,9 +853,9 @@ where
                         counter!("executors.jobs_executed", count, "executor" => "crossbeam_workstealing_pool", "thread_id" => format!("{}", self.id()));
                         decrement_gauge!("executors.jobs_queued", count as f64, "executor" => "crossbeam_workstealing_pool");
                     }
-                } else {
+                } _ => {
                     panic!("Queue should have been initialised!");
-                }
+                }}
             });
 
             let core = self.core.upgrade().expect("Core shut down already!");
@@ -897,11 +897,11 @@ where
             }
             // sometimes try the global queue
             let glob_res = LOCAL_JOB_QUEUE.with(|q| unsafe {
-                if let Some(ref local_queue) = *q.get() {
+                match *q.get() { Some(ref local_queue) => {
                     core.global_sender.steal_batch_and_pop(local_queue)
-                } else {
+                } _ => {
                     panic!("Queue should have been initialised!");
-                }
+                }}
             });
             if let deque::Steal::Success(msg) = glob_res {
                 msg.run();
