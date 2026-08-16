@@ -34,3 +34,6 @@ local.properties
 # Sublime
 *.sublime-project
 *.sublime-workspace
+
+# VSCode
+*.code-workspace

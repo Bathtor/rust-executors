@@ -840,7 +840,10 @@ where
                             None => break 'local,
                         }
                         backoff.reset();
-                        count += 1;
+                        #[allow(unused_assignments)]
+                        {
+                            count += 1;
+                        }
 
                         #[cfg(not(feature = "ws-timed-fairness"))]
                         {
